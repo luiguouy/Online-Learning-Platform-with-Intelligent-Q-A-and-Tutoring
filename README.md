@@ -8,13 +8,14 @@
 | 顺序 | 文件 | 给谁用 | 作用 |
 | :--- | :--- | :--- | :--- |
 | 0 | `GLOSSARY.md` | **零基础先看** | 术语表（人话版）、零经验 FAQ、常见报错速查表 |
-| 1 | `TEAM_WORK_DIVISION.md` | 全员先读 | 分工、接口矩阵、5 周时间表 |
-| 2 | `DEV_SPECIFICATION.md` | 全员必读 | Git 规范、代码规范、**SSE 接口唯一契约**、环境基线 |
-| 3 | `COLLABORATION_WORKFLOW.md` | 全员必读 | **决策权 RACI、分支保护、PR/Review 门禁、CI、完成的定义（DoD）、风险登记册** |
-| 4 | `AGENT_INSTRUCTIONS.md` | 喂给 AI 的第一份文件 | Agent 禁令、application.yml 完整模板、线程池规范、冒烟验收清单 |
-| 5 | `MEMBER_X_DEV_GUIDE.md` | 各自认领 | 成员 A（RAG/SSE）、B（业务/DB）、C（学生前端）、D（教师前端） |
-| 6 | `EVALUATION_AND_DEMO.md` | 第 3 周起 / 答辩前 | 金标问答集、recall@K 评测脚本、演示兜底三层预案、限流与成本护栏 |
-| 7 | `ADVERSARIAL_AUDIT_REPORT.md` | 遇到问题时查 | 历史踩坑分析与答辩防御预案（缺陷已回写进上述文档，此处仅作背景） |
+| 1 | `THREE_WEEK_PLAN.md` | **全员先读** | **工期唯一权威**：三周冲刺计划、每人每周任务与验收标准、裁剪顺序 |
+| 2 | `TEAM_WORK_DIVISION.md` | 全员先读 | 角色分工（第一章）、WBS 任务清单（第二章）、**接口矩阵（第三章）**；第四章原 5 周路线图已作废 |
+| 3 | `DEV_SPECIFICATION.md` | 全员必读 | Git 规范、代码规范、**SSE 接口唯一契约**、环境基线 |
+| 4 | `COLLABORATION_WORKFLOW.md` | 全员必读 | **决策权 RACI、分支保护、PR/Review 门禁、CI、完成的定义（DoD）、风险登记册** |
+| 5 | `AGENT_INSTRUCTIONS.md` | 喂给 AI 的第一份文件 | Agent 禁令、application.yml 完整模板、线程池规范、冒烟验收清单 |
+| 6 | `MEMBER_X_DEV_GUIDE.md` | 各自认领 | 成员 A（RAG/SSE）、B（业务/DB）、C（学生前端）、D（教师前端） |
+| 7 | `EVALUATION_AND_DEMO.md` | 第 3 周起 / 答辩前 | 金标问答集、recall@K 评测脚本、演示兜底三层预案、限流与成本护栏 |
+| 8 | `ADVERSARIAL_AUDIT_REPORT.md` | 遇到问题时查 | 历史踩坑分析与答辩防御预案（缺陷已回写进上述文档，此处仅作背景） |
 
 ### 配套资产（需复制到代码仓生效）
 
@@ -69,7 +70,9 @@
 4. **严禁硬编码密钥**；LLM Key、数据库密码一律环境变量注入。
 5. **前后端字段不许猜**：接口先由成员 B 出 Knife4j 文档，前端照文档调用；Token 存 `localStorage` 统一键名 `satoken`，请求头统一 `Authorization: Bearer <token>`。
 
-## 四、当前项目阶段提示（第 1 周）
+## 四、 当前项目阶段（3 周冲刺）
+
+**工期为 3 周。每人每周的具体任务与验收标准见 `THREE_WEEK_PLAN.md`** —— 该文件是排期唯一权威（`TEAM_WORK_DIVISION.md` 的 5 周路线图已作废）。
 
 开工第一周必须先做两个技术验证（成员 A 负责，各半天）：
 1. **Chroma 元数据过滤验证**：确认 `langchain4j-chroma 0.35` 的 `EmbeddingSearchRequest.filter(IsEqualTo("courseId", ...))` 与 `removeAll(filter)` 真实可用。不可用则立即改用 LangChain4j 内置向量存储 + 本地文件持久化（成员 A 指南已允许此退路），并通知全员更新文档。

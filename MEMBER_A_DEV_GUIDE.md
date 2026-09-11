@@ -16,6 +16,8 @@
 4. **多阶段检索与防幻觉调优**：按 `courseId` 租户级过滤，Cosine 相似度 `>= 0.70` 过滤，召回 Top-K（3~4），组装严谨防幻觉 System Prompt。
 5. **SSE 流式智能答疑接口**：对外提供 `GET /api/qa/chat/stream`，按照 4 阶段协议（`references` -> `message` -> `done` -> `error`）向前端打字机推流。
 6. **知识点自动精解与自测题生成**：提供 `POST /api/knowledge/generate` 接口。
+   - ⚠️ **必须加 Sa-Token 登录校验**（`StpUtil.checkLogin()`）。该接口单次调用消耗大量 Token，不鉴权会被恶意刷爆额度——这也是评委常问的"成本如何控制"。
+   - ⚠️ 同时必须做**按用户限流**（实现见 `EVALUATION_AND_DEMO.md` 4.2）。
 
 ---
 
@@ -128,8 +130,10 @@ com.smartqa.platform.rag
 **实现要点**：
 - 输入：`MultipartFile file`, `Long courseId`, `Long docId`
 - 解析：使用 Tika 将 PDF/Markdown 转换为纯净文本并清洗不可见字符。
-- 分块：使用 `DocumentByParagraphSplitter` 或 `DocumentBySentenceSplitter`，最大字符 400，重叠 50。
-- 注入元数据：必须写入 `course_id`（用于租户隔离）、`doc_id`、`file_name`、`chunk_index`。
+- 分块：使用 `DocumentSplitters.recursive(size, overlap)`（**LangChain4j 0.35 唯一正确写法**），最大字符 400，重叠 50。
+  - ⚠️ **严禁写 `DocumentByParagraphSplitter` / `DocumentBySentenceSplitter`**：那是 0.29 之前的类名，0.35 已移除，写了直接编译失败。
+- 注入元数据：必须写入 **`courseId`（用于租户隔离）、`docId`、`fileName`、`chunkIndex`**。
+  - ⚠️ **必须是 camelCase**。严禁写成 `course_id` / `doc_id` / `file_name` 等 snake_case——键名与检索时 `new IsEqualTo("courseId", ...)` 不一致会导致**过滤静默失效**（表现为：换了课程仍能搜到别的课的内容，且无任何报错）。
 
 ```java
 @Service

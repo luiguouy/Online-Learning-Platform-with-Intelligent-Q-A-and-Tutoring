@@ -110,7 +110,18 @@ sa-token:
   token-style: uuid
   is-read-header: true
   is-read-cookie: false
-  token-prefix: Bearer # 关键修复：允许读取 Authorization: Bearer <token>
+  token-prefix: Bearer # 允许从 Authorization: Bearer <token> 中剥离前缀后识别
+
+# ============================================================================
+# ⚠️ 鉴权请求头铁律（v1.2 复审锁定，全团队唯一标准）
+# ----------------------------------------------------------------------------
+# Sa-Token 默认按 token-name（此处为 satoken）读取请求头。
+# 前端与 SSE 客户端必须【同时】发送下面两个头，缺一不可：
+#     satoken: <token>                 ← Sa-Token 原生识别，拦截器唯一可靠来源
+#     Authorization: Bearer <token>     ← 便于网关、调试与第三方约定
+# 只发 Authorization 而不发 satoken → 拦截器判定未登录，返回 401。
+# 本条对 SSE（/api/qa/chat/stream）同样适用，详见 2.1 请求层与 C 指南 4.1。
+# ============================================================================
 
 rag:
   llm:

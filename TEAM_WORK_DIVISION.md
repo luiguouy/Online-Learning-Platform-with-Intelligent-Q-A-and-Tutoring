@@ -93,10 +93,14 @@
 | **用户登录** | `/api/auth/login` | `POST` | 成员 B | 成员 C & D | 账号密码 -> Token & Role |
 | **课程列表** | `/api/course/list` | `GET` | 成员 B | 成员 C & D | 课程列表与激活状态 |
 | **课件上传** | `/api/teacher/docs/upload` | `POST (Form)` | 成员 B & A | 成员 D | 上传课件并触发异步切块 |
-| **索引重构** | `/api/teacher/docs/{id}/reindex` | `POST` | 成员 A | 成员 D | 重新计算 Embedding 向量 |
+| **课件列表** | `/api/teacher/docs/list?courseId=` | `GET` | 成员 B | 成员 D | 教师端课件管理列表（实现见 B 指南 4.5） |
+| **学情统计** | `/api/teacher/stats/overview` | `GET` | 成员 B | 成员 D | 看板数据：各课程问答量、高频提问（实现见 B 指南 4.5） |
+| **课件删除** | `/api/teacher/docs/{id}` | `DELETE` | 成员 B（接口）+ 成员 A（删向量） | 成员 D | 级联清理 Chroma 切块，防幽灵参考 |
+| **索引重构** | `/api/teacher/docs/{id}/reindex` | `POST` | 成员 B（接口）+ 成员 A（重建向量） | 成员 D | 重新计算 Embedding 向量，异步执行 |
 | **智能答疑 (SSE)** | `/api/qa/chat/stream` | `GET (SSE)` | 成员 A | 成员 C | `question`, `courseId` -> 流式片段与出处 |
-| **会话历史** | `/api/qa/sessions` | `GET` | 成员 B | 成员 C | 历史会话列表与对话记录 |
-| **点赞评价** | `/api/qa/records/{id}/feedback`| `POST` | 成员 B | 成员 C | `recordId`, `status(1/-1)` |
+| **会话历史** | `/api/qa/sessions?courseId=` | `GET` | 成员 B | 成员 C | 历史会话列表（实现见 B 指南 4.5） |
+| **会话明细** | `/api/qa/records?sessionId=` | `GET` | 成员 B | 成员 C | 指定会话下的问答记录（实现见 B 指南 4.5） |
+| **点赞评价** | `/api/qa/records/{id}/feedback`| `POST` | 成员 B | 成员 C | `recordId`, `status(1/-1)`（实现见 B 指南 4.5） |
 | **知识点生成** | `/api/knowledge/generate` | `POST` | 成员 A | 成员 C | 知识点名称 -> 结构化考点解析 |
 | **问答审查修正** | `/api/teacher/qa/correct` | `POST` | 成员 B | 成员 D | `recordId`, `teacherAnswer` |
 
@@ -105,7 +109,10 @@
 
 ---
 
-## 四、 5周推进路线图与关键里程碑 (Timeline)
+## 四、 ~~5周推进路线图与关键里程碑~~（已作废）
+
+> ⚠️ **本节路线图已作废**。项目工期压缩为 **3 周**，现行排期、每人每周任务与验收标准一律以 **`THREE_WEEK_PLAN.md`** 为准。
+> 本节内容保留仅作历史参考，**严禁再按本节排期执行**。本文件仍然有效的部分是：第一章角色职责、第二章 WBS 分工清单、第三章接口矩阵。
 
 ```text
 第 1 周 [基础对齐] ──> 第 2 周 [骨架与CRUD] ──> 第 3 周 [RAG核心攻坚] ──> 第 4 周 [前后端全量闭环] ──> 第 5 周 [压测答辩]

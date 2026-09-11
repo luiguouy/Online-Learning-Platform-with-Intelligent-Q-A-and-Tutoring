@@ -285,12 +285,16 @@ public class TeacherDocumentController {
         if (originalName == null || !originalName.matches("(?i).+\\.(pdf|docx|md|txt)$")) {
             throw new BusinessException("仅支持 PDF / DOCX / MD / TXT 格式");
         }
-        String savedPath = uploadDir + courseId + "/" + System.currentTimeMillis() + "_" + originalName;
+        // 【安全】剥离路径，只保留纯文件名。
+        // 上面的正则中「.」会匹配 / 与 \，不清洗的话 "../../evil.pdf" 能通过校验并被写到上传目录之外（路径穿越）。
+        String safeName = Paths.get(originalName).getFileName().toString();
+        String savedPath = uploadDir + courseId + "/" + System.currentTimeMillis() + "_" + safeName;
         File dest = new File(savedPath);
         dest.getParentFile().mkdirs();
         file.transferTo(dest);
 
-        // 2. 写入数据库，初始状态为 PENDING
+        // 2. 写入数据库。状态说明：落库即进入 PARSING（异步切块已提交，见步骤 3）；
+        //    PENDING 仅用于"已排队但尚未提交切块任务"的场景，本项目同步提交，故实际不会落库为 PENDING。
         CourseDocument doc = CourseDocument.builder()
                 .courseId(courseId)
                 .fileName(originalName)
@@ -360,6 +364,28 @@ public class TeacherQaController {
     }
 }
 ```
+
+### 4.5 其余必须实现的接口（**缺失将直接导致前端 404**）
+
+以下 5 个接口在 `TEAM_WORK_DIVISION.md` 接口矩阵中已声明由成员 B 提供，成员 C/D 的前端会真实调用。
+**本节之前各章只给了 Auth / TeacherDocument / TeacherQa 三个 Controller 的代码，这些接口若不实现，前端调一个 404 一个。**
+
+| 接口 | 方法 | 路径 | 说明 | Controller |
+| :--- | :--- | :--- | :--- | :--- |
+| 课程列表 | GET | `/api/course/list` | 返回当前用户可见课程（学生/教师视角不同） | `CourseController` |
+| 会话历史 | GET | `/api/qa/sessions?courseId={id}` | 返回该课程的会话列表（含首条提问做标题） | `QaSessionController` |
+| 会话明细 | GET | `/api/qa/records?sessionId={id}` | 返回该会话下的问答记录列表 | `QaSessionController` |
+| 点赞/点踩 | POST | `/api/qa/records/{id}/feedback` | body: `{"status": 1 / -1}`，写入 `feedback_rating` | `QaSessionController` |
+| 课件列表 | GET | `/api/teacher/docs/list?courseId={id}` | 教师端课件管理列表（**D 指南 4.1 直接调用此路径**） | `TeacherDocumentController` |
+| 学情统计 | GET | `/api/teacher/stats/overview` | 返回各课程问答量、高频提问等看板数据（**D 指南 4.3 图表依赖此接口**） | `TeacherStatsController` |
+| 索引重构 | POST | `/api/teacher/docs/{id}/reindex` | **Controller 由 B 提供**，内部调用 A 的 `removeDocumentVectors(id)` 再重新切块，状态回到 `PARSING`→`CHUNKED`（**必须异步执行**） | `TeacherDocumentController` |
+
+**实现要点**：
+- 全部返回 `Result<T>` 统一包装，路径与矩阵**逐字符一致**（前端已按此写死）。
+- 课程/会话类接口必须带 **Sa-Token 登录校验**，并按角色过滤数据（学生只能看自己的会话）。
+- `feedback` 接口必须校验 `status` 只能是 `1` 或 `-1`，其余值返回参数错误。
+- `reindex` 属于重建索引，耗时较长，**必须异步执行**（用 `sseExecutor`，禁止默认线程池）。
+- ⚠️ **逻辑删除列必须齐备**：`application.yml` 配置了全局 `logic-delete-field: isDeleted`，意味着**每张表都必须有 `is_deleted` 列**。当前 DDL 只有 `course_document`、`qa_record` 等部分表带该列，请核对 6 张表全部补齐——缺列的表调用 `removeById()` 会直接抛 `Unknown column 'is_deleted'`。
 
 ---
 

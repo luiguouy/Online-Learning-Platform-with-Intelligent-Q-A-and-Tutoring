@@ -171,7 +171,7 @@ if __name__ == "__main__":
 
 **运行前置条件**：后端已启动、课件已上传并处于 `CHUNKED` 状态、已用 `teacher01` 登录拿到 token。
 
-### 2.3 答辩用的结果表（模板，第 5 周填真实数字）
+### 2.3 答辩用的结果表（模板，第 3 周填真实数字）
 
 | 指标 | 无 RAG（直接问大模型） | 本项目（RAG） | 提升 |
 | :--- | :--- | :--- | :--- |
@@ -230,40 +230,86 @@ if __name__ == "__main__":
 
 ### 4.2 实现方案（成员 B，约 2 小时）
 
-基于 Sa-Token 的登录态做**按用户令牌桶**，复用已有依赖，不引入 Redis：
+基于 Sa-Token 登录态做**按用户固定窗口计数**。**零新增依赖**（只用 JDK 的 `ConcurrentHashMap` / `AtomicInteger`）——
+原方案用 Guava `RateLimiter`，但项目 pom 未声明 Guava，直接写会**编译失败**；且 `StpUtil.getLoginIdAsLong()` 在未登录时会抛 `NotLoginException`，必须先判 `isLogin()`。
 
 ```java
 @Component
-@RequiredArgsConstructor
 public class QaRateLimitInterceptor implements HandlerInterceptor {
 
-    /** 每用户令牌桶：容量 10，每秒恢复 1 个（约等于 10 次突发 + 每分钟 60 次稳态） */
-    private final Map<Long, RateLimiter> limiters = new ConcurrentHashMap<>();
+    /** 限流规则：每用户每 60 秒最多 20 次提问（演示场景足够，可按需要调整） */
+    private static final int MAX_REQUESTS = 20;
+    private static final long WINDOW_MILLIS = 60_000L;
+
+    private final Map<Long, AtomicInteger> counters = new ConcurrentHashMap<>();
+    private final Map<Long, Long> windowStart = new ConcurrentHashMap<>();
 
     @Override
     public boolean preHandle(HttpServletRequest request,
                              HttpServletResponse response, Object handler) throws Exception {
+        // 关键：未登录时绝不能调用 getLoginIdAsLong()，否则抛 NotLoginException 导致 500
+        if (!StpUtil.isLogin()) {
+            response.setStatus(401);
+            response.setContentType("application/json;charset=UTF-8");
+            response.getWriter().write("{\"code\":401,\"message\":\"请先登录\"}");
+            return false;
+        }
+
         Long userId = StpUtil.getLoginIdAsLong();
-        RateLimiter limiter = limiters.computeIfAbsent(userId, id -> RateLimiter.create(1.0));
-        if (!limiter.tryAcquire()) {
+        long now = System.currentTimeMillis();
+
+        // 跨过时间窗口则重置计数
+        windowStart.compute(userId, (id, start) -> {
+            if (start == null || now - start > WINDOW_MILLIS) {
+                counters.put(id, new AtomicInteger(0));
+                return now;
+            }
+            return start;
+        });
+
+        if (counters.get(userId).incrementAndGet() > MAX_REQUESTS) {
             response.setStatus(429);
             response.setContentType("application/json;charset=UTF-8");
-            response.getWriter().write("{\"code\":429,\"msg\":\"提问过于频繁，请稍后再试\"}");
+            response.getWriter().write("{\"code\":429,\"message\":\"提问过于频繁，请稍后再试\"}");
             return false;
         }
         return true;
     }
+
+    /** 定期清理过期计数，防止 Map 随用户数无限增长（需在启动类加 @EnableScheduling） */
+    @Scheduled(fixedRate = 600_000)
+    public void cleanup() {
+        long now = System.currentTimeMillis();
+        windowStart.entrySet().removeIf(e -> {
+            if (now - e.getValue() > WINDOW_MILLIS) {
+                counters.remove(e.getKey());
+                return true;
+            }
+            return false;
+        });
+    }
 }
 ```
 
-注册（只拦截答疑接口，不要全局拦截影响其他功能）：
+注册（**只拦截答疑接口**，不要全局拦截，否则会误伤登录与上传）。
+可以单独建配置类，也可以直接合并进 B 指南已有的 `SaTokenConfigure`：
 
 ```java
-registry.addInterceptor(qaRateLimitInterceptor)
-        .addPathPatterns("/api/qa/chat/stream", "/api/knowledge/generate");
+@Configuration
+@RequiredArgsConstructor
+public class WebMvcConfig implements WebMvcConfigurer {
+
+    private final QaRateLimitInterceptor qaRateLimitInterceptor;
+
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(qaRateLimitInterceptor)
+                .addPathPatterns("/api/qa/chat/stream", "/api/knowledge/generate");
+    }
+}
 ```
 
-> 依赖：Guava（`RateLimiter`）。若不想新增依赖，可用 `AtomicInteger` + 时间窗口自行实现，20 行代码。
+> **依赖说明**：本实现零新增依赖。`@Scheduled` 清理需要启动类加 `@EnableScheduling`；若不想加，可删除 `cleanup()` 方法（课设规模下用户数极少，影响可忽略）。
 
 ### 4.3 成本控制（组长负责）
 

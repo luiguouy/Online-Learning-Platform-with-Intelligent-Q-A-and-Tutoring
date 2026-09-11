@@ -4,6 +4,34 @@
 > **审计背景**：针对面向 AI Agent 自动化生成代码与 4 人本科生团队全栈交付方案的全面红蓝对抗性审查。  
 > **审计基准**：4 人协同零摩擦、接口零猜测、RAG 核心闭环零死锁、答辩演示零翻车。
 
+> **🔴 v1.2 复审（2026-09-12 · 3 周工期版）—— 请先读本节**
+>
+> **复审触发条件**：① 工期由 5 周压缩为 **3 周**；② 新增协作治理、评测演示、术语三类文档；③ 新增三周冲刺计划。
+> **复审方法**：逐文件交叉比对 + 关键词全仓检索 + 代码示例可编译性验证（Python/YAML 实跑校验）。
+> **结论**：新发现 7 项问题，**均已在本轮同步修复**（下表状态列）。修复后的文档即唯一有效版本。
+>
+> | ID | 级别 | 问题（一句话） | 涉及文档 | 状态 |
+> | :--- | :--- | :--- | :--- | :--- |
+> | **N1** | P0 | 限流代码用了**项目 pom 里根本没声明**的 Guava `RateLimiter`，直接编译失败；且未登录时 `StpUtil.getLoginIdAsLong()` 抛 `NotLoginException` 导致 500 | `EVALUATION_AND_DEMO.md` 4.2 | 已修：改为零依赖固定窗口计数 + `isLogin()` 前置判断 |
+> | **N2** | P1 | 接口矩阵声明的 5 个接口（课程列表、会话历史、会话明细、点赞、索引重构）在 B 指南中**完全没有实现代码**，前端调一个 404 一个 | `TEAM_WORK_DIVISION.md` 3 / `MEMBER_B_DEV_GUIDE.md` | 已修：B 指南新增 4.5 节，补全 5 个接口的路径与实现要点 |
+> | **N3** | P1 | 工期压缩为 3 周后，**4 处时间线表述仍是 5 周版本**（契约冻结日、每日集成起始周、评测填数周次、5 周路线图本身），会让组员排错期 | `COLLABORATION_WORKFLOW` 6.2/7.1、`EVALUATION_AND_DEMO` 2.3、`TEAM_WORK_DIVISION` 4 | 已修：统一改为 3 周口径，5 周路线图明确标注作废 |
+> | **N4** | P1 | `@types/echarts@4.9` 与 `echarts@5.5` 类型冲突，`vue-tsc --noEmit` 报红、CI 卡死 | `MEMBER_D_DEV_GUIDE.md` 2 | 已修：移除该依赖并加警示说明 |
+> | **N5** | P2 | 接口矩阵**缺课件删除接口**；`reindex` 提供方标注为"成员 A"，但 A 指南根本没有 Controller，实际只能由 B 出接口 | `TEAM_WORK_DIVISION.md` 3 | 已修：矩阵 9 → 11 个接口，提供方改为"B（接口）+ A（服务）" |
+> | **N6** | P2 | 分工文档承诺集成 KaTeX 数学公式，但 C 指南未实现、依赖未声明，是"纸面需求" | `TEAM_WORK_DIVISION.md` 2.3 | 已修：三周计划中明确列为 **Won't 不做** |
+> | **N7** | P1 | 原 5 周工作量压进 3 周，**没有裁剪清单**，第 3 周必然崩在"到处是半成品" | 全局 | 已修：`THREE_WEEK_PLAN.md` 1.2 给出 MoSCoW 优先级与倒序裁剪清单 |
+> | **N8** | **P0** | **鉴权头自相矛盾**：`token-name: satoken` 意味着 Sa-Token 只读 `satoken` 头，但文档写"以 Authorization 为准、不再单独发 satoken"，而 C 指南 SSE 客户端**只发了 Authorization** → **SSE 直接 401，主功能不可用** | `AGENT_INSTRUCTIONS` 1.2/2.1、`DEV_SPECIFICATION` 4.2、`MEMBER_C` 4.1 | 已修：锁定"**双头同发**"铁律，SSE 客户端补齐 `satoken` 头 |
+> | **N9** | P0 | 全局 `logic-delete-field: isDeleted`，但 DDL 只有部分表有 `is_deleted` 列 → 缺列的表调用 `removeById()` 抛 `Unknown column 'is_deleted'` | `AGENT_INSTRUCTIONS` 1.2 / `MEMBER_B` 2 | 已修：B 指南 4.5 加"6 张表全部补齐"提醒 |
+> | **N10** | P1 | 上传**路径穿越**：文件名未清洗，且正则中 `.` 会匹配 `/`，`../../evil.pdf` 可通过校验并写到上传目录之外 | `MEMBER_B` 4.3 | 已修：加 `Paths.get(name).getFileName()` 剥离路径 |
+> | **N11** | P1 | `/api/knowledge/generate` 单次消耗大量 Token 却**无鉴权、无限流**，可被刷爆额度 | `MEMBER_A` 1 | 已修：明确要求 `StpUtil.checkLogin()` + 按用户限流 |
+> | **N12** | P1 | 接口矩阵缺 `/api/teacher/docs/list`、`/api/teacher/stats/overview`，但 D 指南代码已在调用这两个路径 | `TEAM_WORK_DIVISION` 3 / `MEMBER_D` | 已修：矩阵与 B 指南 4.5 同步补齐（矩阵 9 → 13 接口） |
+> | **N13** | P2 | 限流响应体字段名 `msg` 与统一响应 `Result.message` 不一致，前端弹窗显示 `undefined` | `EVALUATION_AND_DEMO` 4.2 | 已修：统一为 `message` |
+> | **N14** | P2 | A 指南**文字与代码打架**：文字写 `DocumentByParagraphSplitter` 与 snake_case 元数据键，代码却用 `DocumentSplitters.recursive` + camelCase → Agent 照文字写会**编译失败**或**检索静默失效** | `MEMBER_A` 4.1 | 已修：描述改为与代码一致并加警示 |
+> | **N15** | P3 | 上传注释写"初始状态 PENDING"但代码写 `PARSING`；CI 未考虑学生端/教师端双前端工程布局 | `MEMBER_B` 4.3 / `.github/workflows/ci.yml` | 已修：注释对齐 + CI 加多前端说明 |
+>
+> **复审方法说明**：本轮采用**双路交叉验证**——一路人工逐条比对，一路独立审查 Agent 全量扫描，双方独立取证后合并去重，最终确认 15 项。两条路径各自都曾出现误判（例如把已在依赖中的 `markdown-it` 当成缺失、把实际已创建的 `THREE_WEEK_PLAN.md` 当成不存在），**均经回读原文证伪后剔除**——审查结论只采信有 `文件:行号` 证据支撑的条目。
+>
+> **3 周可行性结论**：**能做完，但必须砍。** 保住四个 Must（登录鉴权、上传切块、SSE 流式+出处、教师纠偏）即保住答辩全部卖点；知识点精解、自测题、金标评测、KaTeX 必须列为可砍项。最大单点风险是**成员 A 的 Chroma 检索**（全项目唯一技术深水区），必须在 Day 2 完成 Spike 验证，失败当天启动内置向量存储退路。最大死锁是**成员 B 必须在 Day 3 前交付 3 个方法签名给 A**，违反一次整体延期 3 天。
+
 > **✅ 补丁落地状态（v1.1 复审）**：本报告中缺陷 1~5、漏洞 1~4 的修复方案**已全部回写进各源头文档并冻结为唯一契约**：SSE `done` 包已含 `recordId`（成员 A 指南代码）、纠偏优先双路检索已并入 `SseStreamService`（缺陷 3）、级联删除向量已提供 `removeDocumentVectors`（A/B 指南，缺陷 4）、会话懒创建规则已写入 `DEV_SPECIFICATION` 4.2（缺陷 5）、Sa-Token `Bearer` 前缀与 `satoken` 存储键已全团队统一（缺陷 1）、专用 `sseExecutor` 线程池强制注入（漏洞 1）、渲染节流见 AGENT_INSTRUCTIONS 2.2（漏洞 2）、`file.upload-dir` 绝对路径（漏洞 3）、`JacksonTypeHandler` + `autoResultMap`（漏洞 4）。**执行各成员任务时以回写后的文档为准，本报告仅作背景参考，不要再按"未修复前的旧代码"生成。**
 
 ---

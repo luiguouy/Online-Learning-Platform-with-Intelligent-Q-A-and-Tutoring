@@ -113,6 +113,9 @@ export class SseChatClient {
       await fetchEventSource(url, {
         method: 'GET',
         headers: {
+          // 两个头必须同时发：satoken 是 Sa-Token 唯一可靠识别来源，
+          // 只发 Authorization 会被判定未登录（401）。详见 AGENT_INSTRUCTIONS 1.2 鉴权头铁律。
+          'satoken': token,
           'Authorization': `Bearer ${token}`,
           'Accept': 'text/event-stream',
         },

@@ -194,9 +194,17 @@ Connection: keep-alive
 
 **会话懒创建规则**：前端进入页面时不预建会话；`sessionId` 传 `0` 或省略时，后端自动在 `qa_session` 插入新会话（标题取问题前 15 个字符），并在 `done` 包中回传真实 `sessionId` 与 `recordId`。
 
-**Token 存储统一约定**：登录返回的 Token 一律以键名 `satoken` 存入 `localStorage`，请求头同时携带 `Authorization: Bearer <token>`（所有前后端文档以此为准）。
+**鉴权请求头统一约定（v1.2 复审锁定，全团队唯一标准）**：登录返回的 Token 一律以键名 `satoken` 存入 `localStorage`。
+所有请求（**含 SSE**）必须**同时**携带下面两个请求头，缺一不可：
+
+- `satoken: <token>` —— Sa-Token 原生识别来源，**拦截器判定登录的唯一可靠依据**
+- `Authorization: Bearer <token>` —— 网关、调试与第三方约定
+
+只发 `Authorization` 而不发 `satoken` → Sa-Token 判定未登录，返回 **401**。SSE 接口同样适用（见 `MEMBER_C_DEV_GUIDE.md` 4.1 与 `AGENT_INSTRUCTIONS.md` 1.2）。
 
 **课件解析状态机统一约定**：`PENDING(排队中) -> PARSING(切块中) -> CHUNKED(已就绪) -> FAILED(失败)`，数据库与前端标签均使用此四态，禁止使用 `PROCESSING`/`SUCCESS` 等别名。
+
+> **`PENDING` 的实际语义**：本项目单机同步提交切块任务，课件落库后**直接进入 `PARSING`**（见 `MEMBER_B_DEV_GUIDE.md` 4.3 上传代码，注释与状态值已对齐）。`PENDING` 保留为"已排队、尚未提交切块"的中间态；前端状态标签仍需能渲染它，但正常流程下一般观察不到——**不要因为"看不到 PENDING"就以为状态机写错了**。
 
 **向量库 Collection 统一约定**：`smart_qa_course_docs`，禁止各文档各起别名。
 

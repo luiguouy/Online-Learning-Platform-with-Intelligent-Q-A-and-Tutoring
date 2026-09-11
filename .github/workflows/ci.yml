@@ -4,6 +4,10 @@
 # 设计说明：
 #   1. 已配置 paths 过滤器：本【纯文档仓】只有 .md 文件，永远不会触发此流水线；
 #      复制到代码仓后，Java/TS/Vue/pom/package.json 变更即自动触发。
+#   1b. 【多前端包说明】本项目有学生端与教师端两个前端工程（成员 C / D 各一个）。
+#       若代码仓采用 frontend-student/ + frontend-teacher/ 双目录布局，请把下方
+#       frontend/ 的守卫与 working-directory 复制一份改成对应目录名；
+#       若两端合并为单一前端工程，则保持现状即可。
 #   2. 三道门禁：密钥扫描（硬门禁）→ 后端编译 → 前端类型检查与构建。
 #   3. 后端/前端 job 均带 hashFiles 守卫：目录结构不匹配时自动跳过而非报错，
 #      便于适配 backend/ + frontend/ 或单体根目录等不同布局。

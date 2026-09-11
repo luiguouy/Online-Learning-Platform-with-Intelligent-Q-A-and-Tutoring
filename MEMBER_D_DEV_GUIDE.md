@@ -32,12 +32,14 @@
     "axios": "^1.6.8"
   },
   "devDependencies": {
-    "@types/echarts": "^4.9.22",
     "typescript": "^5.2.2",
     "vite": "^5.1.6"
   }
 }
 ```
+
+> ⚠️ **不要安装 `@types/echarts`**：`echarts` 5.x 已自带完整 TypeScript 类型定义，再装 4.x 时代的 `@types/echarts` 会造成类型冲突（`echarts.init()` 等签名不匹配），`vue-tsc --noEmit` 直接报红、CI 卡死。
+> 💡 `echarts-wordcloud` 仅在画词云时才用到；3 周工期下若只做折线图 + 饼图，可删掉此依赖减少安装体积。
 
 ---
 
