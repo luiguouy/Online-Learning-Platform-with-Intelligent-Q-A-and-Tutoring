@@ -116,9 +116,11 @@ rag:
   llm:
     base-url: https://dashscope.aliyuncs.com/compatible-mode/v1 # 兼容 OpenAI 格式
     api-key: ${AI_API_KEY:sk-placeholder}
-    model-name: qwen-plus
+    chat-model: qwen-plus                          # 或 deepseek-chat；字段名固定为 chat-model，禁止写作 model-name
+    embedding-model: text-embedding-v3
     temperature: 0.2
     max-tokens: 1500
+    timeout-seconds: 60
   chroma:
     base-url: http://${CHROMA_HOST:localhost}:8000
     collection-name: smart_qa_course_docs

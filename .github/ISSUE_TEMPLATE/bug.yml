@@ -1,0 +1,73 @@
+name: 缺陷报告
+description: 记录联调或测试中发现的 Bug（P0/P1 请同时在群里 @ 组长）
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > **没有复现步骤的 Bug 报告无法被修复。** 请务必填写复现步骤与报错日志。
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: 严重级别
+      description: 定级标准见 COLLABORATION_WORKFLOW.md 9.1
+      options:
+        - P0 阻断（系统起不来 / 演示白屏 / 数据丢失，2 小时内修）
+        - P1 严重（核心功能不可用，24 小时内修）
+        - P2 一般（有明显瑕疵，本周内修）
+        - P3 优化（体验改进，可排期）
+    validations:
+      required: true
+
+  - type: dropdown
+    id: module
+    attributes:
+      label: 所属模块
+      options:
+        - 登录与权限
+        - 课程与课件管理
+        - RAG 检索与切块
+        - SSE 流式问答
+        - 学生端界面
+        - 教师端后台
+        - 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 一步一步写清楚，别人照着做必须能重现
+      placeholder: |
+        1. 用 student01 登录
+        2. 进入《操作系统》课程
+        3. 输入问题"什么是虚拟内存"并发送
+        4. 页面一直转圈，5 秒后没有任何输出
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际结果
+      description: 附上控制台截图或后端报错日志（从 ERROR / Caused by 开始往上 20 行）
+    validations:
+      required: true
+
+  - type: textarea
+    id: rootcause
+    attributes:
+      label: 根因分析（修复时填写）
+      description: 本项目要求 root-cause，不接受"换个写法就好了"。必须回答"为什么之前会错"
+    validations:
+      required: false

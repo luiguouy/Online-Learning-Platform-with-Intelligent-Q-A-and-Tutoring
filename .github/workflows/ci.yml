@@ -1,0 +1,132 @@
+# =============================================================================
+# CI 门禁（模板文件 —— 需复制到【代码仓】根目录的 .github/workflows/ 下生效）
+#
+# 设计说明：
+#   1. 已配置 paths 过滤器：本【纯文档仓】只有 .md 文件，永远不会触发此流水线；
+#      复制到代码仓后，Java/TS/Vue/pom/package.json 变更即自动触发。
+#   2. 三道门禁：密钥扫描（硬门禁）→ 后端编译 → 前端类型检查与构建。
+#   3. 后端/前端 job 均带 hashFiles 守卫：目录结构不匹配时自动跳过而非报错，
+#      便于适配 backend/ + frontend/ 或单体根目录等不同布局。
+#   4. 纪律：CI 红叉不过夜；禁止 skip CI、禁止 --no-verify。
+#      详见 COLLABORATION_WORKFLOW.md 第四节。
+# =============================================================================
+
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - "**/*.java"
+      - "**/pom.xml"
+      - "**/*.ts"
+      - "**/*.tsx"
+      - "**/*.vue"
+      - "**/package.json"
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 门禁 1：密钥扫描（最高优先级，硬失败）
+  # ---------------------------------------------------------------------------
+  secret-scan:
+    name: 密钥扫描
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 扫描疑似密钥与私钥
+        shell: bash
+        run: |
+          set -o pipefail
+          # 覆盖：OpenAI/通义风格 sk- 密钥、AWS AKIA、PEM 私钥
+          if grep -rInE '(sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----)' \
+              --exclude-dir=.git \
+              --exclude-dir=node_modules \
+              --exclude-dir=target \
+              --exclude-dir=dist . ; then
+            echo "::error::发现疑似密钥，请立即从代码中移除并轮换该密钥"
+            exit 1
+          fi
+          echo "✅ 未发现疑似密钥"
+
+  # ---------------------------------------------------------------------------
+  # 门禁 2：后端编译（Spring Boot + Maven）
+  # ---------------------------------------------------------------------------
+  backend:
+    name: 后端编译
+    runs-on: ubuntu-latest
+    needs: secret-scan
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+          cache: "maven"
+
+      - name: 编译（backend 子目录布局）
+        if: hashFiles('backend/pom.xml') != ''
+        run: mvn -B -ntp compile -DskipTests
+        working-directory: backend
+
+      - name: 编译（仓库根目录布局）
+        if: hashFiles('pom.xml') != '' && hashFiles('backend/pom.xml') == ''
+        run: mvn -B -ntp compile -DskipTests
+
+      - name: 未检测到后端工程
+        if: hashFiles('pom.xml') == '' && hashFiles('backend/pom.xml') == ''
+        run: echo "ℹ️ 未发现 pom.xml，跳过后端编译（文档仓正常现象）"
+
+  # ---------------------------------------------------------------------------
+  # 门禁 3：前端类型检查与构建（Vue 3 + Vite）
+  # ---------------------------------------------------------------------------
+  frontend:
+    name: 前端构建
+    runs-on: ubuntu-latest
+    needs: secret-scan
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: |
+            frontend/package-lock.json
+            package-lock.json
+
+      - name: 安装依赖（frontend 子目录布局）
+        if: hashFiles('frontend/package.json') != ''
+        run: npm ci || npm install
+        working-directory: frontend
+
+      - name: 类型检查与构建（frontend 子目录布局）
+        if: hashFiles('frontend/package.json') != ''
+        run: |
+          npx vue-tsc --noEmit
+          npm run build
+        working-directory: frontend
+
+      - name: 安装依赖（仓库根目录布局）
+        if: hashFiles('package.json') != '' && hashFiles('frontend/package.json') == ''
+        run: npm ci || npm install
+
+      - name: 类型检查与构建（仓库根目录布局）
+        if: hashFiles('package.json') != '' && hashFiles('frontend/package.json') == ''
+        run: |
+          npx vue-tsc --noEmit
+          npm run build
+
+      - name: 未检测到前端工程
+        if: hashFiles('package.json') == '' && hashFiles('frontend/package.json') == ''
+        run: echo "ℹ️ 未发现 package.json，跳过前端构建（文档仓正常现象）"

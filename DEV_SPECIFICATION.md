@@ -41,7 +41,9 @@
   - `target/`、`.idea/`、`*.iml`、`.vscode/`
   - `application-local.yml`（个人本地配置文件，包含密钥）
   - 上传的临时大课件文件（`uploads/*`）
-- 提供一份脱敏的 `application-example.yml` 供组员克隆后重命名配置。
+- 提供一份脱敏的 `application-example.yml` 供组员克隆后重命名配置（模板见文档仓 `templates/application-example.yml`）。
+
+> **配套流程**：分支保护规则的配置步骤、PR/Code Review 检查清单、CI 门禁，见 `COLLABORATION_WORKFLOW.md` 第二至四节；"什么算完成"见其第五节 DoD。本文件只规定规范，流程以协作文档为准。
 
 ---
 

@@ -7,11 +7,26 @@
 
 | 顺序 | 文件 | 给谁用 | 作用 |
 | :--- | :--- | :--- | :--- |
+| 0 | `GLOSSARY.md` | **零基础先看** | 术语表（人话版）、零经验 FAQ、常见报错速查表 |
 | 1 | `TEAM_WORK_DIVISION.md` | 全员先读 | 分工、接口矩阵、5 周时间表 |
 | 2 | `DEV_SPECIFICATION.md` | 全员必读 | Git 规范、代码规范、**SSE 接口唯一契约**、环境基线 |
-| 3 | `AGENT_INSTRUCTIONS.md` | 喂给 AI 的第一份文件 | Agent 禁令、application.yml 完整模板、线程池规范、冒烟验收清单 |
-| 4 | `MEMBER_X_DEV_GUIDE.md` | 各自认领 | 成员 A（RAG/SSE）、B（业务/DB）、C（学生前端）、D（教师前端） |
-| 5 | `ADVERSARIAL_AUDIT_REPORT.md` | 遇到问题时查 | 历史踩坑分析与答辩防御预案（缺陷已回写进上述文档，此处仅作背景） |
+| 3 | `COLLABORATION_WORKFLOW.md` | 全员必读 | **决策权 RACI、分支保护、PR/Review 门禁、CI、完成的定义（DoD）、风险登记册** |
+| 4 | `AGENT_INSTRUCTIONS.md` | 喂给 AI 的第一份文件 | Agent 禁令、application.yml 完整模板、线程池规范、冒烟验收清单 |
+| 5 | `MEMBER_X_DEV_GUIDE.md` | 各自认领 | 成员 A（RAG/SSE）、B（业务/DB）、C（学生前端）、D（教师前端） |
+| 6 | `EVALUATION_AND_DEMO.md` | 第 3 周起 / 答辩前 | 金标问答集、recall@K 评测脚本、演示兜底三层预案、限流与成本护栏 |
+| 7 | `ADVERSARIAL_AUDIT_REPORT.md` | 遇到问题时查 | 历史踩坑分析与答辩防御预案（缺陷已回写进上述文档，此处仅作背景） |
+
+### 配套资产（需复制到代码仓生效）
+
+| 路径 | 作用 |
+| :--- | :--- |
+| `.github/PULL_REQUEST_TEMPLATE.md` | PR 四段式描述 + DoD 自查 + Reviewer 检查表，自动填充 |
+| `.github/ISSUE_TEMPLATE/task.yml` | 任务 Issue 模板（成员/周次/验收标准/依赖） |
+| `.github/ISSUE_TEMPLATE/bug.yml` | 缺陷模板（含 P0~P3 定级与根因分析栏） |
+| `.github/workflows/ci.yml` | CI 门禁：密钥扫描 → 后端 `mvn compile` → 前端 `vue-tsc` + `vite build` |
+| `templates/application-example.yml` | 脱敏配置模板，复制为 `application-local.yml` 后填自己的值 |
+
+> 这些文件放在**代码仓**才会自动生效；本仓库只保存模板。已配置 `paths` 过滤器，CI 在纯文档仓不会触发。
 
 **契约定级规则**：若不同文档描述冲突，一律以 `DEV_SPECIFICATION.md` 第四章（接口契约）为准；其余以各自成员指南中"v1.1 审查回写"后的内容为准。发现新的冲突，停下问组长，不要自行发明。
 
@@ -21,6 +36,8 @@
 确认你对应成员 A / B / C / D（见 `TEAM_WORK_DIVISION.md` 第一章表格）。
 
 ### 第 2 步：把文档喂给你的 AI Agent
+> 看不懂文档里的术语？先读 `GLOSSARY.md`，里面有"人话版"术语表和报错速查表。
+
 打开你的 AI 编程工具，在新项目的**第一条消息**里按此模板发送：
 
 ```text
@@ -57,3 +74,13 @@
 开工第一周必须先做两个技术验证（成员 A 负责，各半天）：
 1. **Chroma 元数据过滤验证**：确认 `langchain4j-chroma 0.35` 的 `EmbeddingSearchRequest.filter(IsEqualTo("courseId", ...))` 与 `removeAll(filter)` 真实可用。不可用则立即改用 LangChain4j 内置向量存储 + 本地文件持久化（成员 A 指南已允许此退路），并通知全员更新文档。
 2. **大模型连通验证**：用 `AGENT_INSTRUCTIONS.md` 的 yml 模板直连通义千问/DeepSeek 兼容接口，跑通一次流式输出；同时验证种子账号 `teacher01/123456` 能 BCrypt 登录。
+
+## 五、 开工前必做：第 0 周准备清单
+
+在写第一行业务代码之前，**先把工程协作的地基打好**（约半天，组长牵头）：建代码仓、配分支保护、复制 CI 与 Issue/PR 模板、4 人环境自检、统一分发 Key、建看板。
+
+完整 8 项清单见 `COLLABORATION_WORKFLOW.md` 附录 A。**跳过这一步，第 2 周必然踩坑**（合并冲突、密钥泄露、接口对不上）。
+
+## 六、 许可证
+
+本项目采用 [MIT License](./LICENSE)。

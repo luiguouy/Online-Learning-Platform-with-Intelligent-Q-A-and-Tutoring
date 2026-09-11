@@ -85,7 +85,7 @@ rag:
     max-tokens: 1500
     timeout-seconds: 60
   chroma:
-    base-url: http://localhost:8000 # Chroma Docker 地址
+    base-url: http://${CHROMA_HOST:localhost}:8000 # Chroma Docker 地址
     collection-name: smart_qa_course_docs # 全团队统一，禁止改名
   chunk:
     size: 400
@@ -93,6 +93,8 @@ rag:
     similarity-threshold: 0.70
     top-k: 4
 ```
+
+> **配置字段唯一真源**：`rag.*` 字段名以 `AGENT_INSTRUCTIONS.md` 1.2 节为唯一标准（两处已同步）。模型字段名固定为 **`chat-model`**，**严禁写成 `model-name`**——字段名不一致会导致 `@ConfigurationProperties` 绑定失败并静默回退默认值，排查成本极高。
 
 ---
 

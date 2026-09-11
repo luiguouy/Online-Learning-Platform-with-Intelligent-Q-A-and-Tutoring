@@ -1,0 +1,69 @@
+name: 开发任务
+description: 用于拆解与追踪日常开发任务（对应 TEAM_WORK_DIVISION 的 WBS）
+title: "[任务] "
+labels: ["task"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > 任务拆得越小越好。**一个 Issue 只做一件事**，预计工作量超过 1 天请拆分。
+
+  - type: dropdown
+    id: member
+    attributes:
+      label: 负责成员
+      options:
+        - 成员 A（RAG / SSE / 组长）
+        - 成员 B（后端业务 / 数据库）
+        - 成员 C（学生端前端）
+        - 成员 D（教师端前端 / 测试）
+    validations:
+      required: true
+
+  - type: input
+    id: week
+    attributes:
+      label: 所属周次
+      placeholder: "第 2 周"
+    validations:
+      required: true
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: 任务目标
+      description: 一句话说清要做到什么，可验收
+      placeholder: "实现登录接口 /api/auth/login，返回 token 与 role"
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准（DoD）
+      description: 对照 COLLABORATION_WORKFLOW.md 第五节 DoD 五层清单
+      placeholder: |
+        1. 能编译通过
+        2. 用 teacher01/123456 能登录成功并返回 token
+        3. 错误密码返回明确错误信息
+        4. Knife4j 上可查到该接口
+    validations:
+      required: true
+
+  - type: textarea
+    id: dependency
+    attributes:
+      label: 依赖项
+      description: 是否依赖他人的接口 / 表结构 / 方法？有则 @ 对方
+      placeholder: "依赖成员 B 的 sys_user 表（已建）"
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: blocked
+    attributes:
+      label: 当前状态
+      options:
+        - label: 我被阻塞了（请在下方说明阻塞原因，并 @ 组长）
+    validations:
+      required: false

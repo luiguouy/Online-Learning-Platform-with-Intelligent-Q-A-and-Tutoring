@@ -1,0 +1,84 @@
+# =============================================================================
+# 脱敏配置模板 —— 供组员克隆后复制为 application-local.yml 使用
+#
+# 使用方法：
+#   1. 复制本文件到【代码仓】后端 resources 目录，重命名为 application-local.yml
+#   2. 填入自己的本地值（MySQL 密码、大模型 Key 等）
+#   3. 确认 .gitignore 已忽略 application-local.yml（禁止入库）
+#
+# 字段唯一真源：AGENT_INSTRUCTIONS.md 1.2 节。若本文件与那处不一致，以那处为准。
+# 密钥纪律：所有敏感值一律用 ${环境变量:默认值} 注入，禁止写死真实密钥。
+# =============================================================================
+
+server:
+  port: 8080
+  servlet:
+    context-path: /
+    encoding:
+      charset: UTF-8
+      force: true
+
+spring:
+  application:
+    name: smart-qa-platform
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DB:smart_qa}?useUnicode=true&characterEncoding=utf8mb4&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PASSWORD:your_local_password}   # ← 改成你自己的 MySQL 密码
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 60MB
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: isDeleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+sa-token:
+  token-name: satoken                 # 前端 localStorage 键名，全团队统一
+  timeout: 604800                     # 7 天免登录
+  active-timeout: 86400
+  is-concurrent: true
+  is-share: true
+  token-style: uuid
+  is-read-header: true
+  is-read-cookie: false
+  token-prefix: Bearer                # 允许前端用 Authorization: Bearer <token>
+
+rag:
+  llm:
+    base-url: https://dashscope.aliyuncs.com/compatible-mode/v1   # 兼容 OpenAI 格式；DeepSeek 改此地址即可
+    api-key: ${AI_API_KEY:sk-placeholder}   # ← 用环境变量注入，禁止写死真实 Key
+    chat-model: qwen-plus                   # 或 deepseek-chat；字段名固定，禁止写作 model-name
+    embedding-model: text-embedding-v3
+    temperature: 0.2
+    max-tokens: 1500
+    timeout-seconds: 60
+  chroma:
+    base-url: http://${CHROMA_HOST:localhost}:8000
+    collection-name: smart_qa_course_docs    # 全团队统一，禁止改名
+  chunk:
+    size: 400
+    overlap: 50
+    similarity-threshold: 0.70
+    top-k: 4
+
+file:
+  upload-dir: ${user.home}/smartqa/uploads/   # 绝对路径，严禁 "uploads/" 相对路径
+
+logging:
+  level:
+    com.smartqa.platform: debug

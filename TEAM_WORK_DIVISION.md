@@ -100,6 +100,9 @@
 | **知识点生成** | `/api/knowledge/generate` | `POST` | 成员 A | 成员 C | 知识点名称 -> 结构化考点解析 |
 | **问答审查修正** | `/api/teacher/qa/correct` | `POST` | 成员 B | 成员 D | `recordId`, `teacherAnswer` |
 
+> **契约变更规则**：第 2 周末为接口契约冻结日。冻结后，上表任何字段的增删改必须走「提 Issue → 双方确认 → 先改文档后改代码 → 群内通知」四步法，详见 `COLLABORATION_WORKFLOW.md` 6.3。严禁口头改字段或前端私自适配。
+> **Mock 先行**：接口未实现前，提供方先给 Postman Mock 或 Knife4j 定义，调用方照 Mock 开发，互不阻塞（同上 6.4）。
+
 ---
 
 ## 四、 5周推进路线图与关键里程碑 (Timeline)
