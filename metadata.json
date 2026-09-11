@@ -1,0 +1,6 @@
+{
+  "name": "AI学习平台4人分工与Agent实战开发交付系统",
+  "description": "AI驱动的在线学习智能答疑辅导平台（RAG知识库）4人分工、全栈规范、成员专属指南、AI Agent执行手册及对抗性审查报告一站式交付系统",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
