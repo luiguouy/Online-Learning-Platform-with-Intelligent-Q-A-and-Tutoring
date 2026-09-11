@@ -106,7 +106,7 @@ export class SseChatClient {
     this.stopStream();
     this.abortController = new AbortController();
 
-    const token = localStorage.getItem('token') || '';
+    const token = localStorage.getItem('satoken') || ''; // 键名统一为 satoken，全团队一致
     const url = `/api/qa/chat/stream?courseId=${courseId}&sessionId=${sessionId}&question=${encodeURIComponent(question)}`;
 
     try {
@@ -120,13 +120,19 @@ export class SseChatClient {
         openWhenHidden: true,
 
         onmessage(msg) {
-          // 处理 4 类事件
+          // 处理 4 类事件（后端所有 data 均为 JSON，与 DEV_SPECIFICATION 4.2 严格对齐）
           if (msg.event === 'references') {
             const refs = JSON.parse(msg.data) as SseReference[];
             callbacks.onReferences(refs);
           } else if (msg.event === 'message') {
-            callbacks.onToken(msg.data);
+            // message 包为增量 JSON: {"delta": "..."}，解析失败则降级按裸文本处理
+            try {
+              callbacks.onToken(JSON.parse(msg.data).delta ?? '');
+            } catch {
+              callbacks.onToken(msg.data);
+            }
           } else if (msg.event === 'done') {
+            // done 包携带 recordId/sessionId，必须保存 recordId 供点赞点踩与纠偏串联
             const doneInfo = JSON.parse(msg.data);
             callbacks.onDone(doneInfo);
           } else if (msg.event === 'error') {

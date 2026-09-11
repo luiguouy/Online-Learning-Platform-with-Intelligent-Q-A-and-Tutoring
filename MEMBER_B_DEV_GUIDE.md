@@ -167,6 +167,28 @@ public class SaTokenConfigure implements WebMvcConfigurer {
 }
 ```
 
+### 3.3 Sa-Token 角色提供器 (`StpInterfaceImpl.java`) —— 必须实现，否则 `checkRole` 全部 403
+Sa-Token 的 `StpUtil.checkRole()` 默认不知道任何用户的角色，**必须**实现 `StpInterface` 从数据库/Session 提供角色列表，否则教师端所有接口联调第一天即被 403 拦死：
+```java
+@Component
+@RequiredArgsConstructor
+public class StpInterfaceImpl implements StpInterface {
+
+    private final SysUserService userService;
+
+    @Override
+    public List<String> getPermissionList(Object loginId, String loginType) {
+        return Collections.emptyList(); // 本项目仅做角色级控制，权限点留空
+    }
+
+    @Override
+    public List<String> getRoleList(Object loginId, String loginType) {
+        SysUser user = userService.getById(Long.valueOf(loginId.toString()));
+        return user == null ? Collections.emptyList() : List.of(user.getRole()); // "TEACHER" / "STUDENT"
+    }
+}
+```
+
 ---
 
 ## 四、 核心业务控制器与接口实现
@@ -241,6 +263,12 @@ public class TeacherDocumentController {
 
     private final CourseDocumentService docService;
     private final DocumentIngestionService ingestionService; // 成员 A 提供的 RAG 切块服务
+    private final QaRecordService qaRecordService;
+    @Resource(name = "sseExecutor")
+    private Executor asyncExecutor; // AsyncThreadPoolConfig 中定义的专用线程池（见 AGENT_INSTRUCTIONS 1.3），禁止用默认公共池
+
+    @Value("${file.upload-dir}") // application.yml 配置绝对路径: ${user.home}/smartqa/uploads/
+    private String uploadDir;
 
     @PostMapping("/upload")
     @Operation(summary = "课件文件上传并触发切块")
@@ -252,10 +280,12 @@ public class TeacherDocumentController {
             throw new BusinessException("上传文件不可为空");
         }
 
-        // 1. 本地存储落盘
+        // 1. 本地存储落盘（必须用配置的绝对路径，严禁 "uploads/" 相对路径——jar 运行/重启会丢文件）
         String originalName = file.getOriginalFilename();
-        String fileType = originalName.substring(originalName.lastIndexOf(".") + 1).toLowerCase();
-        String savedPath = "uploads/" + courseId + "/" + System.currentTimeMillis() + "_" + originalName;
+        if (originalName == null || !originalName.matches("(?i).+\\.(pdf|docx|md|txt)$")) {
+            throw new BusinessException("仅支持 PDF / DOCX / MD / TXT 格式");
+        }
+        String savedPath = uploadDir + courseId + "/" + System.currentTimeMillis() + "_" + originalName;
         File dest = new File(savedPath);
         dest.getParentFile().mkdirs();
         file.transferTo(dest);
@@ -266,12 +296,12 @@ public class TeacherDocumentController {
                 .fileName(originalName)
                 .filePath(savedPath)
                 .fileSize(file.getSize())
-                .fileType(fileType)
+                .fileType(originalName.substring(originalName.lastIndexOf(".") + 1).toLowerCase())
                 .parseStatus("PARSING")
                 .build();
         docService.save(doc);
 
-        // 3. 异步触发成员 A 的切块向量化
+        // 3. 异步触发成员 A 的切块向量化（显式指定专用线程池）
         CompletableFuture.runAsync(() -> {
             try (InputStream in = new FileInputStream(dest)) {
                 int chunks = ingestionService.processAndEmbedDocument(in, courseId, doc.getId(), originalName);
@@ -283,9 +313,22 @@ public class TeacherDocumentController {
                 doc.setErrorMsg(e.getMessage());
                 docService.updateById(doc);
             }
-        });
+        }, asyncExecutor);
 
         return Result.success(doc.getId());
+    }
+
+    @DeleteMapping("/{id}")
+    @Operation(summary = "删除课件（级联清理向量库，防止幽灵参考资料）")
+    public Result<Boolean> deleteDoc(@PathVariable Long id) {
+        CourseDocument doc = docService.getById(id);
+        if (doc == null) {
+            throw new BusinessException("课件不存在");
+        }
+        // 关键：MySQL 删除后必须同步删除 Chroma 中该 docId 的全部切块（成员 A 提供方法）
+        ingestionService.removeDocumentVectors(id);
+        docService.removeById(id);
+        return Result.success(true);
     }
 }
 ```
@@ -323,7 +366,10 @@ public class TeacherQaController {
 ## 五、 协同契约与交付物清单
 
 ### 5.1 对接配合要求
-1. **向成员 A 提供**：在 `qa_record` 表建立后，向成员 A 提供持久化方法 `qaRecordService.saveStreamingRecord(...)`，在流式传输完毕后保存提问与完整回复。
+1. **向成员 A 提供**：在 `qa_record` 表建立后，向成员 A 提供以下方法（`QaRecordService`）：
+   - `saveStreamingRecord(courseId, sessionId, question, answer, references, latencyMs)`：流式传输完毕后保存提问与完整回复，**返回生成的 `recordId`**（成员 A 需在 SSE `done` 包中回传）。
+   - `findTopCorrected(courseId, question)`：检索该课程下已被教师纠偏（`is_corrected=1`）且与问题匹配的记录，供成员 A 实现"纠偏优先"双路检索（见审查报告缺陷 3）。
+   - `createSessionLazy(courseId, question)`（`QaSessionService`）：`sessionId=0` 时懒创建会话，标题取问题前 15 字符。
 2. **向成员 C（学生端）提供**：`/api/course/list`、`/api/qa/sessions`、`/api/qa/records/{id}/feedback`。
 3. **向成员 D（教师端）提供**：`/api/teacher/docs/list`、`/api/teacher/stats/overview`、`/api/teacher/qa/correct`。
 

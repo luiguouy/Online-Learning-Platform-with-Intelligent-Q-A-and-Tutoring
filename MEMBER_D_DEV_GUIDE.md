@@ -134,7 +134,7 @@ import axios from 'axios';
 const docList = ref([]);
 const uploadDialogVisible = ref(false);
 const currentCourseId = ref(1);
-const token = localStorage.getItem('token') || '';
+const token = localStorage.getItem('satoken') || ''; // 键名统一为 satoken，全团队一致
 
 const fetchDocs = async () => {
   const res = await axios.get(`/api/teacher/docs/list?courseId=${currentCourseId.value}`);

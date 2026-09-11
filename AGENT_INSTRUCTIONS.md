@@ -141,6 +141,20 @@ file:
    - 捕获 `Exception` 记录错误日志并返回 `Result.fail(500, "系统繁忙，请稍后重试")`。
 2. **异步线程池 (`AsyncThreadPoolConfig.java`)**：
    - 必须配置自定义 `ThreadPoolTaskExecutor` 供 SSE 推流使用，严禁直接使用默认公共线程池。
+   - Bean 名称**固定为 `sseExecutor`**（成员 A/B 的代码以 `@Resource(name = "sseExecutor")` 按名注入），配置如下：
+   ```java
+   @Bean(name = "sseExecutor")
+   public Executor sseExecutor() {
+       ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+       executor.setCorePoolSize(10);
+       executor.setMaxPoolSize(30);
+       executor.setQueueCapacity(50);
+       executor.setThreadNamePrefix("sse-worker-");
+       executor.initialize();
+       return executor;
+   }
+   ```
+   - 该线程池**只用于 SSE 推流与课件异步切块**，业务接口不得复用，防止大模型长耗时任务饿死普通请求。
 3. **MyBatis-Plus JSON 字段注解**：
    - `qa_record.grounding_references` 在实体类中必须声明为：
      ```java

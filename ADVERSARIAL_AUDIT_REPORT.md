@@ -4,6 +4,8 @@
 > **审计背景**：针对面向 AI Agent 自动化生成代码与 4 人本科生团队全栈交付方案的全面红蓝对抗性审查。  
 > **审计基准**：4 人协同零摩擦、接口零猜测、RAG 核心闭环零死锁、答辩演示零翻车。
 
+> **✅ 补丁落地状态（v1.1 复审）**：本报告中缺陷 1~5、漏洞 1~4 的修复方案**已全部回写进各源头文档并冻结为唯一契约**：SSE `done` 包已含 `recordId`（成员 A 指南代码）、纠偏优先双路检索已并入 `SseStreamService`（缺陷 3）、级联删除向量已提供 `removeDocumentVectors`（A/B 指南，缺陷 4）、会话懒创建规则已写入 `DEV_SPECIFICATION` 4.2（缺陷 5）、Sa-Token `Bearer` 前缀与 `satoken` 存储键已全团队统一（缺陷 1）、专用 `sseExecutor` 线程池强制注入（漏洞 1）、渲染节流见 AGENT_INSTRUCTIONS 2.2（漏洞 2）、`file.upload-dir` 绝对路径（漏洞 3）、`JacksonTypeHandler` + `autoResultMap`（漏洞 4）。**执行各成员任务时以回写后的文档为准，本报告仅作背景参考，不要再按"未修复前的旧代码"生成。**
+
 ---
 
 ## 目录

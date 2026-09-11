@@ -78,7 +78,7 @@ server:
 rag:
   llm:
     base-url: https://dashscope.aliyuncs.com/compatible-mode/v1 # 阿里云百炼或 DeepSeek API
-    api-key: \${AI_API_KEY:sk-placeholder} # 生产使用环境变量注入
+    api-key: ${AI_API_KEY:sk-placeholder} # 生产使用环境变量注入
     chat-model: qwen-plus # 或 deepseek-chat
     embedding-model: text-embedding-v3
     temperature: 0.2
@@ -86,7 +86,7 @@ rag:
     timeout-seconds: 60
   chroma:
     base-url: http://localhost:8000 # Chroma Docker 地址
-    collection-name: course_knowledge_base
+    collection-name: smart_qa_course_docs # 全团队统一，禁止改名
   chunk:
     size: 400
     overlap: 50
@@ -167,6 +167,15 @@ public class DocumentIngestionService {
         log.info("课件 [{}] 向量化完成，共切分 [{}] 个片段", fileName, segments.size());
         return segments.size();
     }
+
+    /**
+     * 级联清理：删除/重建课件时必须同步删除 Chroma 中的向量切块，防止"幽灵参考资料"。
+     * 成员 B 的课件删除接口与 reindex 接口必须先调用本方法。
+     */
+    public void removeDocumentVectors(Long docId) {
+        embeddingStore.removeAll(new IsEqualTo("docId", String.valueOf(docId)));
+        log.info("课件向量切块已级联清理, docId={}", docId);
+    }
 }
 ```
 
@@ -203,11 +212,16 @@ public interface PromptConstants {
 ### 4.3 SSE 核心流式答疑服务 (`SseStreamService.java`)
 接口路径：`GET /api/qa/chat/stream?courseId=1&sessionId=101&question=什么是虚拟内存`
 
-**4 阶段 Event 规范**：
-1. `event: references`：检索到的 Top-K 课件片段列表（出处高亮）。
-2. `event: message`：大模型流式吐字片段。
-3. `event: done`：完成信号，传递本次问答生成的 `recordId`（通知成员 B 保存）。
-4. `event: error`：异常信号。
+**4 阶段 Event 规范**（字段格式以 `DEV_SPECIFICATION.md` 4.2 为唯一标准，所有 data 均为 JSON）：
+1. `event: references`：检索到的 Top-K 课件片段列表（出处高亮），字段：`docId`、`fileName`、`chunkIndex`、`score`、`snippet`。
+2. `event: message`：大模型流式吐字片段，载荷固定为 `{"delta": "..."}`。
+3. `event: done`：完成信号，**必须携带 `recordId` 与 `sessionId`**（供前端点赞/点踩与教师纠偏串联）。
+4. `event: error`：异常信号，载荷为 `{"errorCode": ..., "message": "..."}`。
+
+**强制前置规则（审查报告补丁落地）**：
+- **纠偏优先**：向量检索前必须先查教师已纠偏记录（`qa_record` 表 `is_corrected=1`，精确匹配或相似度最高），命中则直接下发权威答案并在出处标注“任课教师权威修正”。
+- **会话懒创建**：`sessionId` 为 `0`/空时后端自动插入 `qa_session`（标题取问题前 15 字符），并在 `done` 包回传真实 `sessionId`。
+- **专用线程池**：严禁 `CompletableFuture.runAsync` 使用默认公共线程池，必须注入 `sseExecutor`（见 AGENT_INSTRUCTIONS 1.3）。
 
 ```java
 @Service
@@ -219,6 +233,10 @@ public class SseStreamService {
     private final EmbeddingStore<TextSegment> embeddingStore;
     private final StreamingChatLanguageModel streamingChatModel;
     private final RagConfigProperties ragProperties;
+    private final QaRecordService qaRecordService;   // 成员 B 提供：含纠偏查询与流式结果落库
+    private final QaSessionService qaSessionService; // 成员 B 提供：会话懒创建
+    @Resource(name = "sseExecutor")
+    private Executor sseExecutor;                    // 专用 SSE 线程池，禁用默认公共池（@Resource 按名注入，避免 Lombok 构造器丢失 @Qualifier）
 
     public SseEmitter streamChat(Long courseId, Long sessionId, String question) {
         // 设置超时时间 120 秒
@@ -226,6 +244,30 @@ public class SseStreamService {
 
         CompletableFuture.runAsync(() -> {
             try {
+                // 0. 会话懒创建：sessionId 为空或 0 时自动新建
+                if (sessionId == null || sessionId == 0L) {
+                    sessionId = qaSessionService.createSessionLazy(courseId, question);
+                }
+
+                final Long finalSessionId = sessionId;
+
+                // 0.5 纠偏优先：先查教师人工修正的权威答案，命中直接下发（修复“改了白改”假闭环）
+                Optional<QaRecord> corrected = qaRecordService.findTopCorrected(courseId, question);
+                if (corrected.isPresent()) {
+                    QaRecord rec = corrected.get();
+                    emitter.send(SseEmitter.event().name("references").data(List.of(
+                            SseReferenceVO.builder().docId(0L).fileName("任课教师权威修正")
+                                    .chunkIndex(0).score(1.0).snippet(rec.getTeacherComment()).build())));
+                    emitter.send(SseEmitter.event().name("message").data(Map.of("delta", rec.getCorrectedAnswer())));
+                    emitter.send(SseEmitter.event().name("done").data(Map.of(
+                            "recordId", rec.getId(),
+                            "sessionId", finalSessionId,
+                            "finishReason", "stop",
+                            "totalTokens", 0)));
+                    emitter.complete();
+                    return;
+                }
+
                 // 1. 向量检索 (带 courseId 隔离与相似度阈值)
                 Embedding queryEmbedding = embeddingModel.embed(question).content();
                 Filter courseFilter = new IsEqualTo("courseId", String.valueOf(courseId));
@@ -262,6 +304,7 @@ public class SseStreamService {
 
                 // 4. 调用流式 LLM
                 StringBuilder fullAnswer = new StringBuilder();
+                long startMillis = System.currentTimeMillis();
                 streamingChatModel.generate(
                         List.of(SystemMessage.from(prompt), UserMessage.from(question)),
                         new StreamingResponseHandler<AiMessage>() {
@@ -269,7 +312,8 @@ public class SseStreamService {
                             public void onNext(String token) {
                                 try {
                                     fullAnswer.append(token);
-                                    emitter.send(SseEmitter.event().name("message").data(token));
+                                    // 统一 JSON 载荷 {"delta": ...}，防止裸 token 含换行破坏 SSE 帧
+                                    emitter.send(SseEmitter.event().name("message").data(Map.of("delta", token)));
                                 } catch (IOException e) {
                                     log.warn("SSE 发送中断: {}", e.getMessage());
                                 }
@@ -278,9 +322,14 @@ public class SseStreamService {
                             @Override
                             public void onComplete(Response<AiMessage> response) {
                                 try {
-                                    // 发送完成信号，携带完整记录元数据
+                                    // 先落库拿到 recordId（成员 B 的持久化方法），done 包必须回传
+                                    long latencyMs = System.currentTimeMillis() - startMillis;
+                                    Long recordId = qaRecordService.saveStreamingRecord(
+                                            courseId, finalSessionId, question,
+                                            fullAnswer.toString(), references, latencyMs);
                                     emitter.send(SseEmitter.event().name("done").data(Map.of(
-                                            "sessionId", sessionId,
+                                            "recordId", recordId,
+                                            "sessionId", finalSessionId,
                                             "finishReason", "stop",
                                             "totalTokens", response.tokenUsage() != null ? response.tokenUsage().totalTokenCount() : 0
                                     )));
@@ -294,7 +343,8 @@ public class SseStreamService {
                             public void onError(Throwable error) {
                                 log.error("LLM 推流异常: ", error);
                                 try {
-                                    emitter.send(SseEmitter.event().name("error").data("模型生成中断，请稍后重试"));
+                                    emitter.send(SseEmitter.event().name("error").data(Map.of(
+                                            "errorCode", 5001, "message", "模型生成中断，请稍后重试")));
                                 } catch (Exception ignored) {}
                                 emitter.completeWithError(error);
                             }
@@ -304,11 +354,12 @@ public class SseStreamService {
             } catch (Exception ex) {
                 log.error("RAG 流式问答失败: ", ex);
                 try {
-                    emitter.send(SseEmitter.event().name("error").data(ex.getMessage()));
+                    emitter.send(SseEmitter.event().name("error").data(Map.of(
+                            "errorCode", 5000, "message", "服务暂时不可用，请稍后重试")));
                 } catch (Exception ignored) {}
                 emitter.completeWithError(ex);
             }
-        });
+        }, sseExecutor); // 关键：显式传入专用线程池
 
         return emitter;
     }

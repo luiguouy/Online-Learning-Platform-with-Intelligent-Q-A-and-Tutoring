@@ -162,6 +162,8 @@ src/
 ### 4.2 SSE (Server-Sent Events) 核心协议标准
 智能答疑流式接口路径固定为：`GET /api/qa/chat/stream?courseId={id}&sessionId={id}&question={text}`
 
+> **GET 副作用例外说明**：本接口虽为 GET，但会产生业务写入（懒创建会话、落库问答记录），属于本规范 4.1 条的显式例外，原因是保持浏览器原生 SSE 兼容。前端必须使用 `@microsoft/fetch-event-source` 发起（以便携带 Authorization 请求头）。
+
 响应头必须包含：
 ```http
 Content-Type: text/event-stream; charset=UTF-8
@@ -169,24 +171,32 @@ Cache-Control: no-cache
 Connection: keep-alive
 ```
 
-流式数据包事件流定义（严格遵循 4 种 Event）：
-1. **`event: references`**（首包下发，检索到的知识库出处）：
+流式数据包事件流定义（严格遵循 4 种 Event，**所有 data 载荷一律为 JSON**，防止 token 中含换行符破坏 SSE 帧格式）：
+1. **`event: references`**（首包下发，检索到的知识库出处，字段名与后端 `SseReferenceVO` 严格一致）：
    ```json
-   data: [{"docName":"第3章 内存管理.pdf","chunkIndex":14,"score":0.88,"snippet":"虚拟内存分页机制中，页表存储了虚页号与物理页框号的映射关系..."}]
+   data: [{"docId":12,"fileName":"第3章 内存管理.pdf","chunkIndex":14,"score":0.88,"snippet":"虚拟内存分页机制中，页表存储了虚页号与物理页框号的映射关系..."}]
    ```
 2. **`event: message`**（增量生成，流式吐字）：
-   ```text
+   ```json
    data: {"delta": "在操作系统中，"}
    data: {"delta": "分页式存储管理是将虚拟地址空间..."}
    ```
-3. **`event: done`**（结束标记包）：
+3. **`event: done`**（结束标记包，**必须携带 recordId** 供前端点赞/点踩与教师纠偏串联）：
    ```json
-   data: {"recordId": 1024, "totalTokens": 328, "status": "COMPLETED"}
+   data: {"recordId": 1024, "sessionId": 7, "finishReason": "stop", "totalTokens": 328}
    ```
 4. **`event: error`**（异常中断包）：
    ```json
    data: {"errorCode": 5001, "message": "大模型调用超时，请重试"}
    ```
+
+**会话懒创建规则**：前端进入页面时不预建会话；`sessionId` 传 `0` 或省略时，后端自动在 `qa_session` 插入新会话（标题取问题前 15 个字符），并在 `done` 包中回传真实 `sessionId` 与 `recordId`。
+
+**Token 存储统一约定**：登录返回的 Token 一律以键名 `satoken` 存入 `localStorage`，请求头同时携带 `Authorization: Bearer <token>`（所有前后端文档以此为准）。
+
+**课件解析状态机统一约定**：`PENDING(排队中) -> PARSING(切块中) -> CHUNKED(已就绪) -> FAILED(失败)`，数据库与前端标签均使用此四态，禁止使用 `PROCESSING`/`SUCCESS` 等别名。
+
+**向量库 Collection 统一约定**：`smart_qa_course_docs`，禁止各文档各起别名。
 
 ---
 
