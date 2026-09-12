@@ -215,6 +215,69 @@ public class Result<T> implements Serializable {
 }
 ```
 
+**业务异常类**（`BusinessException.java`）—— 必须有 `code` 字段与 `getCode()`，否则下面的全局异常处理器无法编译：
+
+```java
+@Getter
+public class BusinessException extends RuntimeException {
+
+    private final Integer code;
+
+    /** 默认 400 业务错误 */
+    public BusinessException(String message) {
+        super(message);
+        this.code = 400;
+    }
+
+    /** 自定义错误码（如需 404、429 等） */
+    public BusinessException(Integer code, String message) {
+        super(message);
+        this.code = code;
+    }
+}
+```
+
+**全局异常处理器**（`GlobalExceptionHandler.java`）：
+
+```java
+@Slf4j
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    @ExceptionHandler(BusinessException.class)
+    public Result<Void> handleBusiness(BusinessException e) {
+        return Result.fail(e.getCode(), e.getMessage());
+    }
+
+    @ExceptionHandler(NotLoginException.class)
+    public Result<Void> handleNotLogin(NotLoginException e) {
+        return Result.fail(401, "登录已过期，请重新登录");
+    }
+
+    @ExceptionHandler(NotRoleException.class)
+    public Result<Void> handleNotRole(NotRoleException e) {
+        return Result.fail(403, "无权访问该资源");
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public Result<Void> handleValid(MethodArgumentNotValidException e) {
+        String msg = e.getBindingResult().getFieldErrors().stream()
+                .findFirst()
+                .map(FieldError::getDefaultMessage)
+                .orElse("参数校验失败");
+        return Result.fail(400, msg);
+    }
+
+    @ExceptionHandler(Exception.class)
+    public Result<Void> handleOther(Exception e) {
+        log.error("系统异常: ", e);   // 日志里保留完整堆栈，但绝不返回给前端
+        return Result.fail(500, "系统繁忙，请稍后重试");
+    }
+}
+```
+
+> ⚠️ 注意：返回给前端的永远是 `Result` 结构，**绝不把异常堆栈或原始 `e.getMessage()`（可能含 SQL、路径等敏感信息）直接吐给前端**。
+
 ### 4.2 用户登录接口 (`AuthController.java`)
 ```java
 @Tag(name = "身份认证模块")
@@ -387,6 +450,48 @@ public class TeacherQaController {
 - `reindex` 属于重建索引，耗时较长，**必须异步执行**（用 `sseExecutor`，禁止默认线程池）。
 - ✅ **逻辑删除列已全部齐备（v3.0 修复）**：`application.yml` 配了全局 `logic-delete-field: isDeleted`，因此**6 张表都必须有 `is_deleted` 列**——本章 DDL 已逐表补齐。后续改动 DDL 时严禁漏掉任一列：缺列的表调用 `removeById()` 会直接抛 `Unknown column 'is_deleted'`。
 
+**重建索引骨架**（`TeacherDocumentController` 内新增，教师端"重建索引"按钮直接对接此接口）：
+
+```java
+@PostMapping("/{id}/reindex")
+@Operation(summary = "重建课件索引：清旧向量 → 重新切块向量化")
+public Result<Boolean> reindex(@PathVariable Long id) {
+    CourseDocument doc = docService.getById(id);
+    if (doc == null) {
+        throw new BusinessException("课件不存在");
+    }
+
+    // 1. 先清掉旧向量，否则重建会产生重复切片（成员 A 提供的方法）
+    ingestionService.removeDocumentVectors(id);
+
+    // 2. 状态置回 PARSING，切块数清零
+    doc.setParseStatus("PARSING");
+    doc.setChunkCount(0);
+    doc.setErrorMsg("");
+    docService.updateById(doc);
+
+    // 3. 异步重新切块（必须用专用线程池，禁止默认公共池）
+    CompletableFuture.runAsync(() -> {
+        try (InputStream in = new FileInputStream(doc.getFilePath())) {
+            int chunks = ingestionService.processAndEmbedDocument(
+                    in, doc.getCourseId(), doc.getId(), doc.getFileName());
+            doc.setParseStatus("CHUNKED");
+            doc.setChunkCount(chunks);
+            docService.updateById(doc);
+        } catch (Exception e) {
+            doc.setParseStatus("FAILED");
+            doc.setErrorMsg(e.getMessage());
+            docService.updateById(doc);
+        }
+    }, asyncExecutor);
+
+    return Result.success(true);
+}
+```
+
+> 上表其余 4 个接口（`GET /api/course/list`、`GET /api/qa/sessions`、`GET /api/qa/records`、`POST /api/qa/records/{id}/feedback`）都是标准 MyBatis-Plus 分页与 CRUD，照本指南 4.2~4.4 的写法实现即可。
+> **唯一硬要求：路径必须与上表逐字符一致**——前端已按这些路径写死，差一个字符就是 404。
+
 ---
 
 ### 4.6 答疑接口限流 (`QaRateLimitInterceptor.java`)
@@ -460,8 +565,8 @@ registry.addInterceptor(qaRateLimitInterceptor)
    - `Long saveStreamingRecord(Long courseId, Long sessionId, String question, String answer, List<SseReferenceVO> references, long latencyMs)`：流式传输完毕后保存提问与完整回复，**返回生成的 `recordId`**（成员 A 在 SSE `done` 包中回传）。
      ⚠️ **返回值不能为 null**：成员 A 会把它直接写进 `Map.of("recordId", recordId, ...)`，而 `Map.of` 不接受 null 值，会抛 `NullPointerException`。
    - `Long createSessionLazy(Long courseId, String question)`（`QaSessionService`）：`sessionId=0` 时懒创建会话（标题取问题前 15 字符），**返回新建的 `sessionId`**（成员 A 用它替换 `done` 包中的 `sessionId`）。
-   - `void updateParseStatus(Long docId, String status, Integer chunkCount)`（`CourseDocumentService`）：**供成员 A 在切块完成后回写状态**（如 `updateParseStatus(docId, "CHUNKED", chunks)`）。注意 `status` 是**字符串**，取值仅限 `PENDING`/`PARSING`/`CHUNKED`/`FAILED`。
-     ⚠️ **必须提供同名同参方法**，否则 A 无法更新解析状态，课件会永远停在 `PARSING`。
+   - **状态回写由你自己的异步块完成**（见本章 4.3：`doc.setParseStatus("CHUNKED"); doc.setChunkCount(chunks); docService.updateById(doc);`），**不需要成员 A 调用任何方法**。注意状态值是**字符串**，取值仅限 `PENDING` / `PARSING` / `CHUNKED` / `FAILED`。
+     ⚠️ 切块异常时务必把状态置为 `FAILED` 并写入 `error_msg`，否则前端会永远显示"切块向量化中"。
 2. **向成员 C（学生端）提供**：`/api/course/list`、`/api/qa/sessions`、`/api/qa/records`、`/api/qa/records/{id}/feedback`。
 3. **向成员 D（教师端）提供**：`/api/teacher/docs/list`、`/api/teacher/qa/records`（问答记录查看）、`/api/teacher/docs/{id}`（删除课件）。
 

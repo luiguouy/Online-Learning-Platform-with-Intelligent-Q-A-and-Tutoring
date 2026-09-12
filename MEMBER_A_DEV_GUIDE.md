@@ -24,6 +24,9 @@
 ## 二、 Maven 依赖与核心配置
 
 ### 2.1 `pom.xml` 核心依赖清单
+
+> ⚠️ **本清单只是 `pom.xml` 的一部分**。成员 B 负责的依赖（MyBatis-Plus、MySQL 驱动、Sa-Token、Knife4j、spring-security-crypto）列在 `MEMBER_B_DEV_GUIDE.md` 3.1 节。
+> 本项目是**单体 Spring Boot 工程**（见 `AGENT_INSTRUCTIONS.md` 零章禁令），**两份清单必须合并进同一个 `pom.xml`**——不要创建两个工程、两个 pom。缺任何一半，编译都会失败。
 ```xml
 <dependencies>
     <!-- Spring Boot 核心 Web 与验证 -->
@@ -71,6 +74,9 @@
 ```
 
 ### 2.2 `application.yml` 配置规范
+
+> ⚠️ **本段只包含 RAG 相关配置，不是完整文件**。完整可用的 `application.yml` 见 `AGENT_INSTRUCTIONS.md` 1.2 节（还含 `spring.datasource`、`sa-token`、`file.upload-dir` 等必需项）。
+> 只按本段配置启动会直接失败：成员 B 的 `@Value("${file.upload-dir}")` 会报 `Could not resolve placeholder 'file.upload-dir'`。
 ```yaml
 server:
   port: 8080
@@ -140,6 +146,74 @@ public class RagConfigProperties {
 ```
 
 > ⚠️ 两个易错点：① `top-k` 映射到 `topK`（不是 `topk`）；② `similarity-threshold` 映射到 `similarityThreshold`（不是 `similarity`）。字段名写错不会报错，只会**静默取到 null**，运行时才暴露。
+
+### 2.4 模型与向量库 Bean 装配 (`LangChain4jConfig.java`) —— 必写，否则启动失败
+
+**为什么必须手写**：本项目的配置前缀是自定义的 `rag.llm.*`，而 `langchain4j-spring-boot-starter` 的自动配置只认 `langchain4j.open-ai.*`。两者对不上，**不会自动创建 Bean**。而 `SseStreamService` 要注入 `StreamingChatLanguageModel`、`DocumentIngestionService` 要注入 `EmbeddingModel` 与 `EmbeddingStore<TextSegment>`——**缺 Bean 会在启动时直接报 `NoSuchBeanDefinitionException`**。
+
+```java
+@Configuration
+@RequiredArgsConstructor
+public class LangChain4jConfig {
+
+    private final RagConfigProperties rag;
+
+    /** 流式对话模型：OpenAI 兼容协议，可直连通义千问 / DeepSeek */
+    @Bean
+    public StreamingChatLanguageModel streamingChatLanguageModel() {
+        return OpenAiStreamingChatModel.builder()
+                .baseUrl(rag.getLlm().getBaseUrl())
+                .apiKey(rag.getLlm().getApiKey())
+                .modelName(rag.getLlm().getChatModel())        // 注意：用 chatModel
+                .temperature(rag.getLlm().getTemperature())
+                .maxTokens(rag.getLlm().getMaxTokens())
+                .timeout(Duration.ofSeconds(rag.getLlm().getTimeoutSeconds()))
+                .build();
+    }
+
+    /** 向量化模型 */
+    @Bean
+    public EmbeddingModel embeddingModel() {
+        return OpenAiEmbeddingModel.builder()
+                .baseUrl(rag.getLlm().getBaseUrl())
+                .apiKey(rag.getLlm().getApiKey())
+                .modelName(rag.getLlm().getEmbeddingModel())
+                .timeout(Duration.ofSeconds(rag.getLlm().getTimeoutSeconds()))
+                .build();
+    }
+
+    /** 向量库：Chroma（collection 名固定 smart_qa_course_docs） */
+    @Bean
+    public EmbeddingStore<TextSegment> embeddingStore() {
+        return ChromaEmbeddingStore.builder()
+                .baseUrl(rag.getChroma().getBaseUrl())
+                .collectionName(rag.getChroma().getCollectionName())
+                .build();
+    }
+}
+```
+
+> **验收标准**：启动日志无 `NoSuchBeanDefinitionException`；访问 Knife4j 正常。若报找不到 Bean，先检查本类是否被 Spring 扫到（包路径必须在 `com.smartqa.platform` 下）。
+
+### 2.5 关键 VO 定义 (`SseReferenceVO.java`) —— 注解必须齐全
+
+`SseReferenceVO` 既是 SSE `references` 事件的载荷，也是 `qa_record.grounding_references` 这个 JSON 字段的反序列化目标。**Jackson 反序列化要求无参构造 + setter**，所以下面四个注解一个都不能少（**只写 `@Builder` 会导致从数据库读记录时反序列化失败**）：
+
+```java
+@Data
+@Builder
+@NoArgsConstructor      // Jackson 反序列化必需
+@AllArgsConstructor     // 配合 @Builder 必需
+public class SseReferenceVO {
+    private Long docId;          // 课件ID
+    private String fileName;     // 课件文件名
+    private Integer chunkIndex;  // 命中片段序号
+    private Double score;        // 相似度 0~1
+    private String snippet;      // 片段原文
+}
+```
+
+> **字段名与前端严格一致**：`docId` / `fileName` / `chunkIndex` / `score` / `snippet` —— 前端 `SseReference` 接口按此定义（见 `MEMBER_C_DEV_GUIDE.md` 4.1），改一个字段就要同步改前端。
 
 ---
 
@@ -406,14 +480,13 @@ public class SseStreamService {
 
 ### 5.1 与组内成员的对接要求
 1. **与成员 B（后端业务）对接**：
-   - 课件切块完成后，调用成员 B 的 `CourseDocumentService.updateParseStatus(docId, "CHUNKED", chunkCount)` 回写状态。
-     ⚠️ 第二个参数是**字符串字面量**（`"CHUNKED"` / `"PARSING"` / `"FAILED"`）。**不要写成裸标识符 `CHUNKED`**，否则 Java 编译报 `cannot find symbol`。
+   - 切块完成后**只需返回切片数量**（`processAndEmbedDocument` 返回 `int`）。**状态回写由成员 B 的异步块负责**（见 `MEMBER_B_DEV_GUIDE.md` 4.3 的 `setParseStatus("CHUNKED")` + `updateById`），A **不需要也不应该**自己去更新 `course_document` 表。
    - 问答结束时，调用成员 B 的 `QaRecordService.saveStreamingRecord(...)` 落库（提问内容、AI 回复、命中切块引用、耗时），并把它返回的 `recordId` 放进 SSE `done` 包。
 2. **与成员 C（学生前端）对接**：
    - 严格保证 SSE 4 种事件类型的下发顺序，不能跳步。
    - 跨域支持：必须配置 `CorsRegistry` 允许 `GET /api/qa/chat/stream`，且不能启用分块缓存。
 3. **与成员 D（教师前端）对接**：
-   - 课件切块完成后必须把 `chunkCount` 回写进 `course_document` 表（见上条 `updateParseStatus`），教师端课件列表会展示"切块数"。
+   - 课件切块完成后必须把 `chunkCount` 回写进 `course_document` 表（**由成员 B 的异步块完成**），教师端课件列表会展示"切块数"。
    - **不提供"切块片段明细"接口**——该功能不在本期范围内，教师端只展示切块数量。
 
 ### 5.2 成员 A 验收与交付物自测表
