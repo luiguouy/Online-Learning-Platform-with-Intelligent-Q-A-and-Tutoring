@@ -4,7 +4,30 @@
 > **审计背景**：针对面向 AI Agent 自动化生成代码与 4 人本科生团队全栈交付方案的全面红蓝对抗性审查。  
 > **审计基准**：4 人协同零摩擦、接口零猜测、RAG 核心闭环零死锁、答辩演示零翻车。
 
-> **🟢 v4.0 核实（代码级可编译性专项）—— 最新一轮，请先读本节**
+> **🟣 v5.0 核实（代码级第二轮：类定义与实现骨架）—— 最新一轮，请先读本节**
+>
+> **触发条件**：v4.0 核对了"方法签名链"，本轮下探一层——**许多类在文档里只有名字、没有代码**。对零经验组员而言，AI 只能凭猜测生成，猜错就是编译失败或启动失败，而组员**无从判断**。
+> **核查方法**：逐个确认"代码里被用到的类/Bean 是否真的有可照抄的定义"；依赖清单是否可合并为可编译的单一工程。
+> **结论**：新发现 7 项（P0 1 项、P1 2 项），**已全部修复**。
+>
+> | ID | 级别 | 问题（一句话） | 涉及文档 | 状态 |
+> | :--- | :--- | :--- | :--- | :--- |
+> | **D1** | **P0** | **`LangChain4jConfig` 只有类名、没有任何 Bean 代码**。而本项目 yml 用的是自定义前缀 `rag.llm.*`，`langchain4j-spring-boot-starter` 的自动配置只认 `langchain4j.open-ai.*`——两者对不上，**`StreamingChatLanguageModel` / `EmbeddingModel` / `EmbeddingStore` 三个 Bean 一个都不会被创建**，`SseStreamService` 与 `DocumentIngestionService` 注入时启动即 `NoSuchBeanDefinitionException` | `MEMBER_A_DEV_GUIDE` 1/2 | 已修：新增 2.4 节，给出三个 `@Bean` 的完整装配代码（OpenAiStreamingChatModel / OpenAiEmbeddingModel / ChromaEmbeddingStore），并说明为何不能依赖自动配置 |
+> | **D2** | **P1** | **`BusinessException` 类无任何定义**，但 `GlobalExceptionHandler` 调用 `e.getCode()` → Agent 极易写成单参构造 `BusinessException(String)`，则 `getCode()` 编译失败 | `MEMBER_B_DEV_GUIDE` 4.1 | 已修：补类定义（`code` 字段 + 双构造器），并补 `GlobalExceptionHandler` 完整代码（含 401/403/参数校验/兜底五类处理） |
+> | **D3** | **P1** | **`SseReferenceVO` 无类定义**。它既是 SSE 载荷、又是 `qa_record.grounding_references` 这个 **JSON 字段的反序列化目标**——Jackson 需要**无参构造 + setter**，只写 `@Builder` 会导致从数据库读记录时反序列化失败 | `MEMBER_A_DEV_GUIDE` 2 | 已修：新增 2.5 节，给出 `@Data @Builder @NoArgsConstructor @AllArgsConstructor` 完整定义并说明四个注解缺一不可 |
+> | **D4** | P2 | **`pom.xml` 被拆成两份清单**（A 的 2.1 只有 LangChain4j+Lombok，B 的 3.1 只有 MyBatis-Plus/Sa-Token/Knife4j），而本项目是**单体工程**——Agent 若只取其一，编译直接缺依赖 | `MEMBER_A_DEV_GUIDE` 2.1 / `MEMBER_B_DEV_GUIDE` 3.1 | 已修：A 指南 2.1 加"两份清单必须合并进同一个 pom.xml"警示 |
+> | **D5** | P2 | A 指南 2.2 的 yml 片段**只含 `rag.*`**，若被当作完整文件使用，B 的 `@Value("${file.upload-dir}")` 会报 `Could not resolve placeholder` | `MEMBER_A_DEV_GUIDE` 2.2 | 已修：加"本段非完整文件，完整版见 AGENT_INSTRUCTIONS 1.2"警示 |
+> | **D6** | P2 | **状态回写责任两边打架**：A 指南 5.1 要求"A 回调 `updateParseStatus`"，B 指南 5.1 也要求"B 必须提供该方法"，但 A 的 4.1 代码里**根本没有这个调用**（实际由 B 的异步块 `setParseStatus("CHUNKED")` 自行完成） | `MEMBER_A_DEV_GUIDE` 5.1 / `MEMBER_B_DEV_GUIDE` 5.1 | 已修：统一为"**由 B 的异步块负责回写**"，删除 A 侧的调用要求（避免 A、B 各写一遍造成重复/错位） |
+> | **D7** | P2 | **`reindex` 接口只有路径、没有任何实现**，而 `THREE_WEEK_PLAN` 的 D2.4 要求教师端对接重建索引 → 前端调用必然 404 | `MEMBER_B_DEV_GUIDE` 4.5 | 已修：补 Controller 骨架（清旧向量 → 置 `PARSING` → 异步重建 → 写 `CHUNKED`/`FAILED`），并注明其余 4 个接口照 4.2~4.4 模式实现、路径须逐字符一致 |
+>
+> **本轮未发现问题的项（逐项验证过）**：
+> - **前端 4 个组件全量检查通过**：`MarkdownViewer` / `GroundingDrawer` / `CourseDocManage` / `QaRecordList` 的模板变量与事件处理器**全部在 `<script setup>` 中有定义**；`import` 的包**全部在对应 package.json 中声明**；**已无 echarts 残留**。
+> - **接口路径拼接正确**：`request` 封装的 baseURL 是 `/api`，故代码写 `/teacher/docs/list`（而非 `/api/teacher/docs/list`）✓；`el-upload` 因不走 axios 拦截器，用绝对路径 `/api/teacher/docs/upload` 且手动补双头 ✓。
+> - **SSE 双头**：`sseClient`、`uploadHeaders`、`request` 拦截器三处均同时携带 `satoken` + `Authorization` ✓。
+> - **DDL ↔ 实体 ↔ 前端字段**：6 表列名与驼峰字段对应，四态状态机在三处（DDL 默认值 / B 写入 / D 渲染）一致 ✓。
+> - **配置键三方对齐**：`rag.*` / `file.upload-dir` / `sa-token.*` 在 `AGENT_INSTRUCTIONS` 1.2 与 `templates/application-example.yml` **逐键一致**，与代码 getter 宽松绑定成立 ✓。
+>
+> **🟢 v4.0 核实（代码级可编译性专项）**
 >
 > **触发条件**：组员**完全没有编程经验**，文档里的代码示例若不自洽，AI 生成的代码会直接编译失败，而组员**没有能力发现**。因此本轮不看措辞，只验证"代码链条是否闭合"。
 > **核查方法**：① 方法签名链逐个对齐（调用方 vs 提供方，比参数顺序/类型/返回类型）；② 包结构比对；③ 类定义完整性；④ Vue 模板变量与事件处理器自动化校验；⑤ 配置键 → getter → yml 三方映射核对。
