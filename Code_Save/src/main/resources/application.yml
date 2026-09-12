@@ -1,0 +1,95 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /
+    encoding:
+      charset: UTF-8
+      force: true
+
+spring:
+  application:
+    name: smart-qa-platform
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DB:smart_qa}?useUnicode=true&characterEncoding=utf8mb4&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PASSWORD:123456}
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 60MB
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: isDeleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+sa-token:
+  token-name: Authorization       # ★ 关键：Sa-Token 读取的请求头名
+  timeout: 604800                 # 7天免登录 (秒)
+  active-timeout: 86400
+  is-concurrent: true
+  is-share: true
+  token-style: uuid
+  is-read-header: true
+  is-read-cookie: false
+  token-prefix: Bearer            # ★ 关键：头值须带 "Bearer " 前缀（含一个空格）
+
+# ============================================================================
+# RAG 与大模型配置 (通义千问 / DeepSeek OpenAI 兼容协议)
+# ============================================================================
+rag:
+  llm:
+    base-url: https://dashscope.aliyuncs.com/compatible-mode/v1 # 兼容 OpenAI 格式
+    api-key: ${AI_API_KEY:sk-placeholder}
+    chat-model: qwen-plus                          # 或 deepseek-chat；字段名固定为 chat-model
+    embedding-model: text-embedding-v3
+    temperature: 0.2
+    max-tokens: 1500
+    timeout-seconds: 60
+  chroma:
+    base-url: http://${CHROMA_HOST:localhost}:8000
+    collection-name: smart_qa_course_docs
+  chunk:
+    size: 400
+    overlap: 50
+    similarity-threshold: 0.70
+    top-k: 4
+
+file:
+  upload-dir: ${user.home}/smartqa/uploads/
+
+# ============================================================================
+# Knife4j 与 OpenAPI3 配置
+# ============================================================================
+springdoc:
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+
+knife4j:
+  enable: true
+  openapi:
+    title: 在线学习智能答疑辅导平台接口文档
+    description: "智能答疑平台后端 API 契约与接口调试"
+    version: v1.0.0
+    group:
+      default:
+        group-name: 默认核心接口
+        api-rule: package
+        api-rule-resources:
+          - com.smartqa.platform.controller
