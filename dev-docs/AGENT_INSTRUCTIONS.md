@@ -20,8 +20,9 @@
 4. **禁止空桩代码（No Mock Stubs）**：
    - 严禁在 Service 中写 `return null;` 或 `// TODO: implement later`。
    - 必须实现完整的数据库查询、异常抛出与逻辑校验。
-5. **绝对禁止硬编码 API 密钥**：
-   - 所有 LLM Key、数据库密码必须通过 `${SPRING_DATASOURCE_PASSWORD}` 或 `${AI_API_KEY}` 环境变量注入。
+5. **绝对禁止在代码和公共配置中硬编码真实生产密钥**：
+   - 严禁将任何真实的大模型 API Key 或生产数据库密码提交至 Git 仓库。
+   - 本地开发统一通过 `application-local.yml`（已加入 `.gitignore`）或环境变量（`${AI_API_KEY}`、`${MYSQL_PASSWORD}`）注入。公共 `application.yml` 中的占位默认值仅供本地离线沙箱开箱即用。
 
 ---
 
@@ -131,13 +132,14 @@ sa-token:
 
 rag:
   llm:
-    base-url: https://dashscope.aliyuncs.com/compatible-mode/v1 # 兼容 OpenAI 格式
+    # 聊天大模型端点：可直连 DeepSeek 官方 (https://api.deepseek.com/v1) 或 阿里云百炼 (https://dashscope.aliyuncs.com/compatible-mode/v1)
+    base-url: ${AI_BASE_URL:https://api.deepseek.com/v1}
     api-key: ${AI_API_KEY:sk-placeholder}
-    chat-model: qwen-plus                          # 或 deepseek-chat；字段名固定为 chat-model，禁止写作 model-name
-    embedding-model: text-embedding-v3
+    chat-model: ${AI_CHAT_MODEL:deepseek-chat}    # 支持 deepseek-chat、qwen-plus 等；字段名固定为 chat-model
     temperature: 0.2
     max-tokens: 1500
     timeout-seconds: 60
+  # 向量模型说明：已采用内置 BGE-Small-ZH 本地量化模型 (纯本地CPU计算，零Token费用，无远程接口依赖)
   chroma:
     base-url: http://${CHROMA_HOST:localhost}:8000
     collection-name: smart_qa_course_docs

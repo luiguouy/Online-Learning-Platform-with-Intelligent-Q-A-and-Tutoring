@@ -29,7 +29,7 @@
   2. **RAG 向量流水线**：
      - 基于 LangChain4j 或 Spring AI，封装课件文档提取解析器（支持 PDF、Markdown、TXT）。
      - 实现智能文本切块逻辑（Recursive Chunking: 400 字符分块，50 字符重叠）。
-     - 集成 Text Embedding 模型（如通义千问 text-embedding-v3 或本地轻量向量模型）。
+     - 集成 Text Embedding 模型（采用本地轻量量化向量模型 BGE-Small-ZH，零成本离线计算）。
      - 接入轻量向量库（Chroma Docker 单机版 或 LangChain4j 内置向量存储）。
   3. **智能答疑检索增强**：
      - 实现根据 `courseId` 元数据过滤的 Top-K 向量相似度检索。

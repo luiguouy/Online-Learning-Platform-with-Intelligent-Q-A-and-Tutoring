@@ -12,7 +12,7 @@
 
 1. **工程骨架与基础脚手架**：初始化 Spring Boot 3.x 统一工程，配置 Maven 依赖管理。
 2. **文档解析与切块（Document Ingestion）**：支持 PDF、Markdown、TXT 格式课件解析，执行递归字符切片（Chunk Size = 400，Overlap = 50）。
-3. **向量化与存储（Embedding & Vector Store）**：使用通用文本向量模型（如 `text-embedding-v3` 或本地 BGE-small），元数据（courseId、docId、fileName）关联注入，存入 Chroma 或内存向量库。
+3. **向量化与存储（Embedding & Vector Store）**：使用本地轻量向量模型（BGE-small 纯 CPU 离线计算，零成本），元数据（courseId、docId、fileName）关联注入，存入 Chroma 或内置向量库。
 4. **多阶段检索与防幻觉调优**：按 `courseId` 租户级过滤，Cosine 相似度 `>= 0.70` 过滤，召回 Top-K（3~4），组装严谨防幻觉 System Prompt。
 5. **SSE 流式智能答疑接口**：对外提供 `GET /api/qa/chat/stream`，按照 4 阶段协议（`references` -> `message` -> `done` -> `error`）向前端打字机推流。
 6. **知识点解析**：提供 `POST /api/knowledge/generate` 接口，返回结构化 Markdown 精解（核心概念定义 + 难点辨析），**不生成自测题**。
@@ -75,6 +75,12 @@
         <artifactId>langchain4j-chroma</artifactId>
         <version>0.35.0</version>
     </dependency>
+    <!-- 本地轻量量化向量模型 (BGE-Small-ZH, 纯本地CPU运行, 零Token成本) -->
+    <dependency>
+        <groupId>dev.langchain4j</groupId>
+        <artifactId>langchain4j-embeddings-bge-small-zh-q</artifactId>
+        <version>0.35.0</version>
+    </dependency>
     <!-- Apache Tika (文档智能解析支持 PDF, DOCX, TXT) -->
     <dependency>
         <groupId>dev.langchain4j</groupId>
@@ -103,13 +109,13 @@ server:
 
 rag:
   llm:
-    base-url: https://dashscope.aliyuncs.com/compatible-mode/v1 # 阿里云百炼或 DeepSeek API
+    base-url: https://api.deepseek.com/v1 # 兼容 OpenAI 格式，支持 DeepSeek 官方或阿里云百炼
     api-key: ${AI_API_KEY:sk-placeholder} # 生产使用环境变量注入
-    chat-model: qwen-plus # 或 deepseek-chat
-    embedding-model: text-embedding-v3
+    chat-model: deepseek-chat # 或 qwen-plus
     temperature: 0.2
     max-tokens: 1500
     timeout-seconds: 60
+  # 向量模型说明：已采用内置 BGE-Small-ZH 本地量化模型 (纯本地CPU计算，零Token费用，无远程接口依赖)
   chroma:
     base-url: http://${CHROMA_HOST:localhost}:8000 # Chroma Docker 地址
     collection-name: smart_qa_course_docs # 全团队统一，禁止改名
@@ -141,7 +147,7 @@ public class RagConfigProperties {
         private String baseUrl;          // rag.llm.base-url
         private String apiKey;           // rag.llm.api-key
         private String chatModel;        // rag.llm.chat-model
-        private String embeddingModel;   // rag.llm.embedding-model
+        private String embeddingModel;   // rag.llm.embedding-model (历史字段，路线二已采用内置 BgeSmallZhQuantizedEmbeddingModel)
         private Double temperature;      // rag.llm.temperature
         private Integer maxTokens;       // rag.llm.max-tokens
         private Integer timeoutSeconds;  // rag.llm.timeout-seconds
@@ -189,15 +195,10 @@ public class LangChain4jConfig {
                 .build();
     }
 
-    /** 向量化模型 */
+    /** 向量化模型：采用本地 BGE-Small-ZH 量化模型，纯本地 CPU 毫秒级运算，永久 0 成本，无网络依赖 */
     @Bean
     public EmbeddingModel embeddingModel() {
-        return OpenAiEmbeddingModel.builder()
-                .baseUrl(rag.getLlm().getBaseUrl())
-                .apiKey(rag.getLlm().getApiKey())
-                .modelName(rag.getLlm().getEmbeddingModel())
-                .timeout(Duration.ofSeconds(rag.getLlm().getTimeoutSeconds()))
-                .build();
+        return new BgeSmallZhQuantizedEmbeddingModel();
     }
 
     /** 向量库：Chroma（collection 名固定 smart_qa_course_docs） */
@@ -389,12 +390,12 @@ public class SseStreamService {
 
         CompletableFuture.runAsync(() -> {
             try {
-                // 0. 会话懒创建：sessionId 为空或 0 时自动新建
-                if (sessionId == null || sessionId == 0L) {
-                    sessionId = qaSessionService.createSessionLazy(courseId, question);
-                }
+                // 0. 会话懒创建：sessionId 为空或 0 时自动新建（使用局部变量，避免 Lambda 捕获形参再赋值导致编译错误）
+                Long actualSessionId = (sessionId == null || sessionId == 0L)
+                        ? qaSessionService.createSessionLazy(courseId, question)
+                        : sessionId;
 
-                final Long finalSessionId = sessionId;
+                final Long finalSessionId = actualSessionId;
 
                 // 1. 向量检索 (带 courseId 隔离与相似度阈值)
                 Embedding queryEmbedding = embeddingModel.embed(question).content();

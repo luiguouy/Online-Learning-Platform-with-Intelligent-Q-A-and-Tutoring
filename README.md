@@ -1,33 +1,36 @@
-# AI 驱动的在线学习智能答疑辅导平台（RAG 课程知识库）— 开发文档仓库
+# AI 驱动的在线学习智能答疑辅导平台（RAG 课程知识库）
 
-> 本仓库**只存放开发文档**，不存放代码。代码由每位组员在自己电脑上新建的工程目录中，由 AI Agent（Claude Code / Cursor / Windsurf / Qwen-Code / Codex 等）根据本仓库文档生成。
-> 团队后端统一工程仓库（代码仓）另行创建，本仓库文档中的接口契约、表结构、配置模板是四个人的"共同法律"。
+> 本仓库采用**开发文档与项目代码一体化单体仓 (Monorepo)** 统一管理：
+> - 📂 **`dev-docs/`**：团队开发文档专用专区（包含全员规范、接口契约、表结构、三周排期及组员开发指南）。
+> - 📂 **`backend/`**：单体 Spring Boot 3.3.5 后端工程源码（遵循分层架构与单一工程原则）。
+> - ⚙️ **`.github/`**：CI 持续集成门禁（密钥扫描 + 后端构建）、PR 模板与 Issue 规范（在仓库根目录直接对 `backend/` 生效）。
 
-## 一、文档清单与阅读顺序
+## 一、开发文档清单与阅读顺序（`dev-docs/` 专区）
 
-| 顺序 | 文件 | 给谁用 | 作用 |
+| 顺序 | 文件路径 | 给谁用 | 作用 |
 | :--- | :--- | :--- | :--- |
-| 0 | `GLOSSARY.md` | **零基础先看** | 术语表（人话版）、零经验 FAQ、常见报错速查表 |
-| 1 | `THREE_WEEK_PLAN.md` | **全员先读** | **工期唯一权威**：三周冲刺计划、每人每周任务与验收标准、裁剪顺序 |
-| 2 | `TEAM_WORK_DIVISION.md` | 全员先读 | 角色分工（第一章）、WBS 任务清单（第二章）、**接口矩阵（第三章）**；第四章原 5 周路线图已作废 |
-| 3 | `DEV_SPECIFICATION.md` | 全员必读 | Git 规范、代码规范、**SSE 接口唯一契约**、环境基线 |
-| 4 | `COLLABORATION_WORKFLOW.md` | 全员必读 | **决策权 RACI、分支保护、PR/Review 门禁、CI、完成的定义（DoD）、风险登记册** |
-| 5 | `AGENT_INSTRUCTIONS.md` | 喂给 AI 的第一份文件 | Agent 禁令、application.yml 完整模板、线程池规范、冒烟验收清单 |
-| 6 | `MEMBER_X_DEV_GUIDE.md` | 各自认领 | 成员 A（RAG/SSE）、B（业务/DB）、C（学生前端）、D（教师前端） |
+| 0 | [`dev-docs/GLOSSARY.md`](dev-docs/GLOSSARY.md) | **零基础先看** | 术语表（人话版）、零经验 FAQ、常见报错速查表 |
+| 1 | [`dev-docs/THREE_WEEK_PLAN.md`](dev-docs/THREE_WEEK_PLAN.md) | **全员先读** | **工期唯一权威**：三周冲刺计划、每人每周任务与验收标准、裁剪顺序 |
+| 2 | [`dev-docs/TEAM_WORK_DIVISION.md`](dev-docs/TEAM_WORK_DIVISION.md) | 全员先读 | 角色分工（第一章）、WBS 任务清单（第二章）、**接口矩阵（第三章）** |
+| 3 | [`dev-docs/DEV_SPECIFICATION.md`](dev-docs/DEV_SPECIFICATION.md) | 全员必读 | Git 规范、代码规范、**SSE 接口唯一契约**、环境基线 |
+| 4 | [`dev-docs/COLLABORATION_WORKFLOW.md`](dev-docs/COLLABORATION_WORKFLOW.md) | 全员必读 | **决策权 RACI、分支保护、PR/Review 门禁、CI、完成的定义（DoD）** |
+| 5 | [`dev-docs/AGENT_INSTRUCTIONS.md`](dev-docs/AGENT_INSTRUCTIONS.md) | 喂给 AI 的第一份文件 | Agent 禁令、application.yml 完整模板、线程池规范、冒烟验收清单 |
+| 6 | `dev-docs/MEMBER_X_DEV_GUIDE.md` | 各自认领 | 成员 A（RAG/SSE）、B（业务/DB）、C（学生前端）、D（教师前端） |
+| 7 | [`dev-docs/组员发指令速查卡.md`](dev-docs/组员发指令速查卡.md) | 复制即用 | 组员给 AI 发指令速查卡（含 A/B/C/D 专属第一条指令） |
 
-### 配套资产（需复制到代码仓生效）
+### 配套工程资产
 
 | 路径 | 作用 |
 | :--- | :--- |
 | `.github/PULL_REQUEST_TEMPLATE.md` | PR 四段式描述 + DoD 自查 + Reviewer 检查表，自动填充 |
 | `.github/ISSUE_TEMPLATE/task.yml` | 任务 Issue 模板（成员/周次/验收标准/依赖） |
 | `.github/ISSUE_TEMPLATE/bug.yml` | 缺陷模板（含 P0~P3 定级与根因分析栏） |
-| `.github/workflows/ci.yml` | CI 门禁：密钥扫描 → 后端 `mvn compile` → 前端 `vue-tsc` + `vite build` |
-| `templates/application-example.yml` | 脱敏配置模板，复制为 `application-local.yml` 后填自己的值 |
+| `.github/workflows/ci.yml` | CI 门禁：密钥扫描 → 后端 `mvn compile` → 前端类型与构建 |
+| `dev-docs/templates/application-example.yml` | 脱敏配置模板，复制为 `backend/src/main/resources/application-local.yml` 使用 |
 
-> 这些文件放在**代码仓**才会自动生效；本仓库只保存模板。已配置 `paths` 过滤器，CI 在纯文档仓不会触发。
+> 以上工程资产在仓库根目录直接生效，提交 `backend/` 下的 Java 源码时 CI 流水线会自动触发校验。
 
-**契约定级规则**：若不同文档描述冲突，一律以 `DEV_SPECIFICATION.md` 第四章（接口契约）为准；其余以各自成员指南中"v1.1 审查回写"后的内容为准。发现新的冲突，停下问组长，不要自行发明。
+**契约定级规则**：若不同文档描述冲突，一律以 `dev-docs/DEV_SPECIFICATION.md` 第四章（接口契约）为准；其余以各自成员指南中"v1.1 审查回写"后的内容为准。发现新的冲突，停下问组长，不要自行发明。
 
 ## 二、组员操作指南（零编程经验版）
 

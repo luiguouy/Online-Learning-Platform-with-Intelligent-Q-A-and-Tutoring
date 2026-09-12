@@ -41,9 +41,9 @@
   - `target/`、`.idea/`、`*.iml`、`.vscode/`
   - `application-local.yml`（个人本地配置文件，包含密钥）
   - 上传的临时大课件文件（`uploads/*`）
-- 提供一份脱敏的 `application-example.yml` 供组员克隆后重命名配置（模板见文档仓 `templates/application-example.yml`）。
+- 提供一份脱敏的 `application-example.yml` 供组员克隆后重命名配置（模板见 `dev-docs/templates/application-example.yml`）。
 
-> **配套流程**：分支保护规则的配置步骤、PR/Code Review 检查清单、CI 门禁，见 `COLLABORATION_WORKFLOW.md` 第二至四节；"什么算完成"见其第五节 DoD。本文件只规定规范，流程以协作文档为准。
+> **配套流程**：分支保护规则的配置步骤、PR/Code Review 检查清单、CI 门禁，见 `dev-docs/COLLABORATION_WORKFLOW.md` 第二至四节；"什么算完成"见其第五节 DoD。本文件只规定规范，流程以协作文档为准。
 
 ---
 
@@ -233,8 +233,8 @@ Authorization: Bearer <token>
   {{context}}
   
   【回答纪律】：
-  1. 答案必须严格来自参考资料，绝不可捏造或发散推测。
-  2. 若参考资料中未提及相关信息，请明确回答：“在当前课程课件中未找到该问题的明确说明”，并给出标准学科建议。
+  1. 答案必须严格基于【参考资料】作答，绝不可捏造或发散推测。
+  2. 若【参考资料】中未提及相关信息，请明确回答：“在当前课程课件中未找到该问题的明确说明”；若提供学科常识性延伸，必须显式标注“【课外补充说明】”，不得与课件内容混淆。
   3. 使用规范 Markdown 语法组织回答，包含概念阐述、分析步骤和代码示例（如有）。
   ```
 - **模型参数调优**：

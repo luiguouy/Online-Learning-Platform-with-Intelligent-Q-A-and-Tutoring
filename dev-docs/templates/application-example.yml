@@ -2,7 +2,7 @@
 # 脱敏配置模板 —— 供组员克隆后复制为 application-local.yml 使用
 #
 # 使用方法：
-#   1. 复制本文件到【代码仓】后端 resources 目录，重命名为 application-local.yml
+#   1. 复制本文件到 backend/src/main/resources 目录，重命名为 application-local.yml
 #   2. 填入自己的本地值（MySQL 密码、大模型 Key 等）
 #   3. 确认 .gitignore 已忽略 application-local.yml（禁止入库）
 #
@@ -60,13 +60,13 @@ sa-token:
 
 rag:
   llm:
-    base-url: https://dashscope.aliyuncs.com/compatible-mode/v1   # 兼容 OpenAI 格式；DeepSeek 改此地址即可
+    base-url: https://api.deepseek.com/v1   # 兼容 OpenAI 格式，支持 DeepSeek 官方或阿里云百炼
     api-key: ${AI_API_KEY:sk-placeholder}   # ← 用环境变量注入，禁止写死真实 Key
-    chat-model: qwen-plus                   # 或 deepseek-chat；字段名固定，禁止写作 model-name
-    embedding-model: text-embedding-v3
+    chat-model: deepseek-chat               # 或 qwen-plus；字段名固定，禁止写作 model-name
     temperature: 0.2
     max-tokens: 1500
     timeout-seconds: 60
+  # 向量模型说明：已采用内置 BGE-Small-ZH 本地模型 (纯本地CPU计算，零Token费用，无远程接口依赖)
   chroma:
     base-url: http://${CHROMA_HOST:localhost}:8000
     collection-name: smart_qa_course_docs    # 全团队统一，禁止改名

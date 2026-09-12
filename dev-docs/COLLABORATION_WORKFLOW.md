@@ -60,9 +60,9 @@ main            ← 演示/发布分支，永远可运行，只有组长能合�
 **可选项（推荐）**：配置 `.github/CODEOWNERS` 自动指定 Reviewer：
 
 ```text
-# 放在代码仓根目录（本文件为模板，需复制到代码仓）
+# 放在仓库根目录（.github/CODEOWNERS）
 *                          @luiguouy          # 组长默认 Reviewer
-/src/main/java/com/smartqa/rag/  @luiguouy     # RAG 模块需组长审
+/backend/src/main/java/com/smartqa/platform/service/rag/  @luiguouy  # RAG 核心模块需组长审
 ```
 
 ### 2.3 分支生命周期（防止"长命分支"引发大规模冲突）
@@ -134,9 +134,9 @@ main            ← 演示/发布分支，永远可运行，只有组长能合�
 | 文档/格式 | — | — | 暂不做强制（避免过度工程） |
 
 ### 4.2 工作流文件
-
-模板位于 `.github/workflows/ci.yml`，**需复制到代码仓根目录生效**。
-本文件已配置 `paths` 过滤器，**在本纯文档仓中不会触发**（没有 Java/TS 源码），复制到代码仓后自动生效。
+ 
+ 工作流文件位于仓库根目录 `.github/workflows/ci.yml`。
+ 该文件已配置 `paths` 过滤器，当修改 `backend/` 下的 Java 源码或 `pom.xml` 时会自动触发门禁流水线。变更纯文档（`dev-docs/`）时不会触发编译任务。
 
 ### 4.3 CI 纪律
 
@@ -302,12 +302,12 @@ B 建表 + 登录接口  →  C/D 能登录  →  A 的 SSE（依赖 B 的 qa_re
 
 | # | 事项 | 负责人 | 完成标准 |
 | :--- | :--- | :--- | :--- |
-| 1 | 创建团队**代码仓**（与本文档仓分离），添加 4 人为 Collaborator | A | 4 人都能 push |
+| 1 | 确认团队 Monorepo 仓库权限，添加 4 人为 Collaborator | A | 4 人都能 push |
 | 2 | 配置分支保护规则（`main` / `dev`，见 2.2） | A | Settings 中可见规则生效 |
-| 3 | 复制 CI 工作流、PR 模板、Issue 模板到代码仓 | A | 提一个测试 PR 能看到模板与 Actions |
+| 3 | 验证根目录 CI 工作流、PR 模板、Issue 模板正常运行 | A | 提一个测试 PR 能看到模板与 Actions |
 | 4 | 4 人各自本地环境自检（Node / JDK / Maven / MySQL / Docker） | 全体 | 能跑通 `mvn -v` 与 `npm -v` |
 | 5 | 组长统一分发大模型 Key，全员用环境变量注入 | A | 各自本地能跑通一次 API 调用 |
-| 6 | 复制 `templates/application-example.yml` 为 `application-local.yml` | 全体 | 后端能启动，且该文件不入库 |
+| 6 | 复制 `dev-docs/templates/application-example.yml` 为 `backend/src/main/resources/application-local.yml` | 全体 | 后端能启动，且该文件不入库 |
 | 7 | 建 GitHub Project 看板，把第 1 周任务拆成 Issue 并指派 | A | 看板有 To do / In progress / Done 三列 |
 | 8 | 约定每日站会与每周集成时间，写进群公告 | A | 全员确认时间 |
 

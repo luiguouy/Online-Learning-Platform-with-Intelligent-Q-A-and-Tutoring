@@ -118,7 +118,7 @@ src/views/teacher/
         </div>
         <template #tip>
           <div class="el-upload__tip text-xs text-slate-400">
-            支持 PDF / Markdown / TXT，单文件大小不超过 50MB
+            支持 PDF / DOCX / Markdown / TXT，单文件大小不超过 50MB
           </div>
         </template>
       </el-upload>
