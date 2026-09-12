@@ -58,6 +58,12 @@
             <artifactId>langchain4j-chroma</artifactId>
             <version>${langchain4j.version}</version>
         </dependency>
+        <!-- 本地轻量量化向量模型 (BGE-Small-ZH, 纯本地CPU运行, 零Token成本) -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-embeddings-bge-small-zh-q</artifactId>
+            <version>${langchain4j.version}</version>
+        </dependency>
         <!-- Apache Tika (文档智能解析支持 PDF, DOCX, TXT) -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
