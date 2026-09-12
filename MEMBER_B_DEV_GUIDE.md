@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS sys_user (
     nickname VARCHAR(50) NOT NULL COMMENT '用户真实姓名',
     role VARCHAR(20) NOT NULL DEFAULT 'STUDENT' COMMENT '角色: STUDENT-学生, TEACHER-教师',
     avatar_url VARCHAR(255) DEFAULT '' COMMENT '头像地址',
+    is_deleted TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除: 0-正常, 1-删除',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='系统用户表';
@@ -59,6 +60,7 @@ CREATE TABLE IF NOT EXISTS course_document (
     chunk_count INT NOT NULL DEFAULT 0 COMMENT '切块片段总数',
     parse_status VARCHAR(20) NOT NULL DEFAULT 'PENDING' COMMENT '状态: PENDING-排队中, PARSING-切片中, CHUNKED-已就绪, FAILED-失败',
     error_msg VARCHAR(500) DEFAULT '' COMMENT '解析失败原因',
+    is_deleted TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除: 0-正常, 1-删除',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_course_doc (course_id, parse_status)
@@ -87,6 +89,7 @@ CREATE TABLE IF NOT EXISTS qa_record (
     grounding_references JSON NULL COMMENT '命中的课件出处快照 (JSON数组)',
     feedback_rating TINYINT DEFAULT 0 COMMENT '学生打分: 1-点赞, -1-点踩, 0-未评',
     latency_ms INT DEFAULT 0 COMMENT '模型生成耗时(毫秒)',
+    is_deleted TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除: 0-正常, 1-删除',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_session_record (session_id),
     INDEX idx_course_record (course_id)
@@ -99,6 +102,7 @@ CREATE TABLE IF NOT EXISTS course_knowledge_point (
     chapter_name VARCHAR(100) NOT NULL COMMENT '所属章节',
     title VARCHAR(150) NOT NULL COMMENT '知识点标题 (如: 页面置换算法LRU与FIFO对比)',
     summary TEXT NOT NULL COMMENT '核心精解摘要',
+    is_deleted TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除: 0-正常, 1-删除',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_course_point (course_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='课程知识点库表';
@@ -363,7 +367,7 @@ public class TeacherQaController {
 
 ### 4.5 其余必须实现的接口（**缺失将直接导致前端 404**）
 
-以下 5 个接口在 `TEAM_WORK_DIVISION.md` 接口矩阵中已声明由成员 B 提供，成员 C/D 的前端会真实调用。
+以下 7 个接口在 `TEAM_WORK_DIVISION.md` 接口矩阵中已声明由成员 B 提供，成员 C/D 的前端会真实调用。
 **本节之前各章只给了 Auth / TeacherDocument / TeacherQa 三个 Controller 的代码，这些接口若不实现，前端调一个 404 一个。**
 
 | 接口 | 方法 | 路径 | 说明 | Controller |
@@ -381,7 +385,7 @@ public class TeacherQaController {
 - 课程/会话类接口必须带 **Sa-Token 登录校验**，并按角色过滤数据（学生只能看自己的会话）。
 - `feedback` 接口必须校验 `status` 只能是 `1` 或 `-1`，其余值返回参数错误。
 - `reindex` 属于重建索引，耗时较长，**必须异步执行**（用 `sseExecutor`，禁止默认线程池）。
-- ⚠️ **逻辑删除列必须齐备**：`application.yml` 配置了全局 `logic-delete-field: isDeleted`，意味着**每张表都必须有 `is_deleted` 列**。当前 DDL 只有 `course_document`、`qa_record` 等部分表带该列，请核对 6 张表全部补齐——缺列的表调用 `removeById()` 会直接抛 `Unknown column 'is_deleted'`。
+- ✅ **逻辑删除列已全部齐备（v3.0 修复）**：`application.yml` 配了全局 `logic-delete-field: isDeleted`，因此**6 张表都必须有 `is_deleted` 列**——本章 DDL 已逐表补齐。后续改动 DDL 时严禁漏掉任一列：缺列的表调用 `removeById()` 会直接抛 `Unknown column 'is_deleted'`。
 
 ---
 
@@ -445,6 +449,8 @@ registry.addInterceptor(qaRateLimitInterceptor)
 
 **验收标准**：连续快速提问第 21 次返回 429；未登录访问返回 401（不是 500）。
 
+> **关于计数器清理**：上面两个 Map 会随不同用户累积。本项目演示环境用户数极少（<10 人），**可以不做清理**；若追求严谨，可在启动类加 `@EnableScheduling`，再补一个定时任务清理超过 60 秒未活动的条目。
+
 ---
 
 ## 五、 协同契约与交付物清单
@@ -453,6 +459,7 @@ registry.addInterceptor(qaRateLimitInterceptor)
 1. **向成员 A 提供**：在 `qa_record` 表建立后，向成员 A 提供以下方法（`QaRecordService`）：
    - `saveStreamingRecord(courseId, sessionId, question, answer, references, latencyMs)`：流式传输完毕后保存提问与完整回复，**返回生成的 `recordId`**（成员 A 需在 SSE `done` 包中回传）。
    - `createSessionLazy(courseId, question)`（`QaSessionService`）：`sessionId=0` 时懒创建会话，标题取问题前 15 字符。
+   - `updateParseStatus(docId, status, chunkCount)`（`CourseDocumentService`）：**供成员 A 在切块完成后回写状态**（置为 `CHUNKED` 并写入切块数）。成员 A 指南 4.1 会直接调用此方法，**必须提供同名同参方法**，否则 A 无法更新解析状态。
 2. **向成员 C（学生端）提供**：`/api/course/list`、`/api/qa/sessions`、`/api/qa/records`、`/api/qa/records/{id}/feedback`。
 3. **向成员 D（教师端）提供**：`/api/teacher/docs/list`、`/api/teacher/qa/records`（问答记录查看）、`/api/teacher/docs/{id}`（删除课件）。
 
@@ -460,4 +467,4 @@ registry.addInterceptor(qaRateLimitInterceptor)
 - [ ] MySQL 脚本在本地顺利导入无报错，外键与索引创建完毕。
 - [ ] 启动项目访问 `http://localhost:8080/doc.html` 能看到清晰的 Knife4j 接口文档。
 - [ ] 使用学生与教师两种账号测试登录，测试未授权访问 `/api/teacher/**` 被拦截（403 异常）。
-- [ ] 文件上传成功在本地 `uploads/` 目录落盘，数据库状态流转正确。
+- [ ] 文件上传成功在**配置的绝对路径**（`${user.home}/smartqa/uploads/`，非相对路径 `uploads/`）下落盘，数据库状态流转正确。

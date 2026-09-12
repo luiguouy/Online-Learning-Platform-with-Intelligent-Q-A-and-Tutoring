@@ -41,11 +41,13 @@ com.smartqa.platform
 │   ├── AsyncThreadPoolConfig.java   // 异步与SSE线程池配置
 │   └── LangChain4jConfig.java       // LLM、EmbeddingModel、EmbeddingStore Bean
 ├── controller/
-│   ├── AuthController.java          // /api/auth/*
-│   ├── CourseController.java        // /api/course/*
-│   ├── SseChatController.java       // /api/qa/chat/stream (SSE)
-│   ├── QaRecordController.java      // /api/qa/*
-│   └── TeacherManageController.java // /api/teacher/*
+│   ├── AuthController.java              // /api/auth/*
+│   ├── CourseController.java            // /api/course/list
+│   ├── SseChatController.java           // /api/qa/chat/stream (SSE)
+│   ├── QaSessionController.java         // /api/qa/sessions、/api/qa/records、feedback
+│   ├── KnowledgeController.java         // /api/knowledge/generate
+│   ├── TeacherDocumentController.java   // /api/teacher/docs/*
+│   └── TeacherQaController.java         // /api/teacher/qa/records
 ├── service/
 │   ├── SysUserService.java
 │   ├── CourseService.java
@@ -54,7 +56,7 @@ com.smartqa.platform
 │   ├── QaRecordService.java
 │   └── rag/
 │       ├── DocumentIngestionService.java // 文档切片与入库
-│       └── RagRetrievalService.java      // 双路召回与上下文组装
+│       └── RagRetrievalService.java      // 向量召回与上下文组装（单路向量检索，无纠偏库）
 ├── dao/                             // MyBatis-Plus Mapper 接口与 XML
 └── model/
     ├── entity/                      // 数据库表 1:1 映射

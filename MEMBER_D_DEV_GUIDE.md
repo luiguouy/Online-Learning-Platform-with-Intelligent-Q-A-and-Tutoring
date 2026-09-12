@@ -50,6 +50,10 @@ src/views/teacher/
     └── DocUploadModal.vue     // 课件拖拽上传弹窗
 ```
 
+> **依赖的公共文件**：两个页面都使用 `src/utils/request.ts`（axios 统一封装，自动携带 `satoken` + `Authorization` 双请求头并解包 `Result.data`）。
+> 若教师端是**独立的前端工程**，需要从 `AGENT_INSTRUCTIONS.md` 2.1 节复制一份 `request.ts` 到本工程 `src/utils/` 下；
+> 若与学生端**共用同一个前端工程**，则直接复用即可。**无论如何都不要在页面里直接用裸 axios。**
+
 ---
 
 ## 四、 核心功能代码实现指南
@@ -87,9 +91,9 @@ src/views/teacher/
         </template>
       </el-table-column>
       <el-table-column prop="createdAt" label="上传时间" width="180" />
-      <el-table-column label="操作" width="150" fixed="right">
+      <el-table-column prop="chunkCount" label="切块数" width="90" />
+      <el-table-column label="操作" width="100" fixed="right">
         <template #default="{ row }">
-          <el-button link type="primary" size="small" @click="previewChunks(row)">查看片段</el-button>
           <el-button link type="danger" size="small" @click="handleDelete(row.id)">删除</el-button>
         </template>
       </el-table-column>
@@ -101,7 +105,7 @@ src/views/teacher/
         drag
         action="/api/teacher/docs/upload"
         :data="{ courseId: currentCourseId }"
-        :headers="{ Authorization: `Bearer ${token}` }"
+        :headers="uploadHeaders"
         :on-success="handleUploadSuccess"
         :before-upload="beforeUpload"
         accept=".pdf,.docx,.md,.txt"
@@ -121,20 +125,31 @@ src/views/teacher/
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { Upload, UploadFilled } from '@element-plus/icons-vue';
-import { ElMessage } from 'element-plus';
-import axios from 'axios';
+import { ElMessage, ElMessageBox } from 'element-plus';
+// 必须用统一封装实例：它自动携带 satoken 与 Authorization 双请求头，并自动解包 Result.data。
+// 千万不要用裸 axios —— 不带头会让 /api/teacher/** 请求被判未登录（401）。
+import request from '@/utils/request';
 
-const docList = ref([]);
+const docList = ref<any[]>([]);
 const uploadDialogVisible = ref(false);
 const currentCourseId = ref(1);
-const token = localStorage.getItem('satoken') || ''; // 键名统一为 satoken，全团队一致
+
+// el-upload 使用自己的上传通道，**不经过** axios 拦截器，因此必须手动补上双请求头
+const uploadHeaders = computed(() => {
+  const token = localStorage.getItem('satoken') || '';
+  return { satoken: token, Authorization: `Bearer ${token}` };
+});
 
 const fetchDocs = async () => {
-  const res = await axios.get(`/api/teacher/docs/list?courseId=${currentCourseId.value}`);
-  if (res.data.code === 200) {
-    docList.value = res.data.data;
+  try {
+    // request 的 baseURL 已是 /api，此处不要再写 /api 前缀
+    docList.value = (await request.get('/teacher/docs/list', {
+      params: { courseId: currentCourseId.value },
+    })) as any;
+  } catch {
+    ElMessage.error('课件列表加载失败');
   }
 };
 
@@ -150,6 +165,24 @@ const handleUploadSuccess = () => {
   ElMessage.success('上传成功，后台已启动向量切片索引！');
   uploadDialogVisible.value = false;
   fetchDocs();
+};
+
+/** 删除课件：后端会同步级联清除该课件在 Chroma 中的全部向量切片 */
+const handleDelete = async (id: number) => {
+  try {
+    await ElMessageBox.confirm('删除后该课件的向量切片会被同步清除，确定删除？', '确认删除', {
+      type: 'warning',
+    });
+  } catch {
+    return; // 用户取消
+  }
+  try {
+    await request.delete(`/teacher/docs/${id}`);
+    ElMessage.success('课件已删除');
+    fetchDocs();
+  } catch {
+    ElMessage.error('删除失败');
+  }
 };
 
 onMounted(fetchDocs);

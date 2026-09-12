@@ -111,7 +111,7 @@ com.smartqa.platform.rag
 │   └── PromptConstants.java           // 系统级防幻觉提示词模板
 ├── controller/
 │   ├── SseChatController.java         // /api/qa/chat/stream 控制器
-│   └── KnowledgeExtractController.java// /api/knowledge/generate 控制器
+│   └── KnowledgeController.java        // /api/knowledge/generate 控制器
 ├── service/
 │   ├── DocumentIngestionService.java  // 课件文档解析与切片向量化服务
 │   ├── RagRetrievalService.java       // 向量相似度检索与上下文装配服务

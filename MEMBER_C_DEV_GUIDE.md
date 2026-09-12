@@ -62,6 +62,7 @@ src/
 │   ├── chatStore.ts           // 当前会话、流式消息与参考出处Pinia状态
 │   └── courseStore.ts         // 当前选中课程状态
 ├── utils/
+│   ├── request.ts             // axios 统一封装：自动带 satoken + Authorization 双头、解包 Result、401 跳登录（实现见 AGENT_INSTRUCTIONS 2.1）
 │   └── sseClient.ts           // 核心SSE流式请求封装 (含中断控制器)
 └── views/student/
     ├── StudentLayout.vue      // 学生端主布局 (左侧栏+主操作区)
