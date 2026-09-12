@@ -98,29 +98,76 @@ rag:
 
 > **配置字段唯一真源**：`rag.*` 字段名以 `AGENT_INSTRUCTIONS.md` 1.2 节为唯一标准（两处已同步）。模型字段名固定为 **`chat-model`**，**严禁写成 `model-name`**——字段名不一致会导致 `@ConfigurationProperties` 绑定失败并静默回退默认值，排查成本极高。
 
+### 2.3 RAG 配置映射类 (`RagConfigProperties.java`)
+
+上面 yml 里的每个键都必须有对应的 Java 字段（**驼峰映射**），否则 `ragProperties.getChunk().getSize()` 这类调用会编译失败。**本类必须按下面这样写，字段名不要改**：
+
+```java
+@Data
+@Component
+@ConfigurationProperties(prefix = "rag")
+public class RagConfigProperties {
+
+    private Llm llm = new Llm();
+    private Chroma chroma = new Chroma();
+    private Chunk chunk = new Chunk();
+
+    @Data
+    public static class Llm {
+        private String baseUrl;          // rag.llm.base-url
+        private String apiKey;           // rag.llm.api-key
+        private String chatModel;        // rag.llm.chat-model
+        private String embeddingModel;   // rag.llm.embedding-model
+        private Double temperature;      // rag.llm.temperature
+        private Integer maxTokens;       // rag.llm.max-tokens
+        private Integer timeoutSeconds;  // rag.llm.timeout-seconds
+    }
+
+    @Data
+    public static class Chroma {
+        private String baseUrl;          // rag.chroma.base-url
+        private String collectionName;   // rag.chroma.collection-name
+    }
+
+    @Data
+    public static class Chunk {
+        private Integer size;                // rag.chunk.size
+        private Integer overlap;             // rag.chunk.overlap
+        private Double similarityThreshold;  // rag.chunk.similarity-threshold
+        private Integer topK;                // rag.chunk.top-k
+    }
+}
+```
+
+> ⚠️ 两个易错点：① `top-k` 映射到 `topK`（不是 `topk`）；② `similarity-threshold` 映射到 `similarityThreshold`（不是 `similarity`）。字段名写错不会报错，只会**静默取到 null**，运行时才暴露。
+
 ---
 
 ## 三、 模块代码结构与详细类设计
 
 ```text
-com.smartqa.platform.rag
+com.smartqa.platform                  ← 与 AGENT_INSTRUCTIONS 1.1 完全一致，禁止另起 rag.* 顶层包
 ├── config/
-│   ├── RagConfigProperties.java       // RAG参数映射实体
-│   └── LangChain4jConfig.java         // LLM、EmbeddingModel、EmbeddingStore Bean装配
-├── constant/
-│   └── PromptConstants.java           // 系统级防幻觉提示词模板
+│   ├── RagConfigProperties.java        // RAG 参数映射 (@ConfigurationProperties(prefix = "rag"))
+│   └── LangChain4jConfig.java          // LLM / EmbeddingModel / EmbeddingStore Bean 装配
 ├── controller/
-│   ├── SseChatController.java         // /api/qa/chat/stream 控制器
+│   ├── SseChatController.java          // /api/qa/chat/stream 控制器
 │   └── KnowledgeController.java        // /api/knowledge/generate 控制器
-├── service/
-│   ├── DocumentIngestionService.java  // 课件文档解析与切片向量化服务
-│   ├── RagRetrievalService.java       // 向量相似度检索与上下文装配服务
-│   └── SseStreamService.java          // SSE流式推送控制服务
+├── service/rag/
+│   ├── DocumentIngestionService.java   // 课件解析、切片、向量化入库
+│   ├── RagRetrievalService.java        // 向量相似度检索与上下文装配
+│   └── SseStreamService.java           // SSE 流式推送控制
+├── constant/
+│   └── PromptConstants.java            // 防幻觉提示词模板
 └── model/
-    ├── SseReferenceVO.java            // 检索溯源首包VO
-    ├── KnowledgeGenerateDTO.java      // 知识点解析请求DTO
-    └── KnowledgeGenerateVO.java       // 知识点解析响应VO
+    ├── dto/KnowledgeGenerateDTO.java   // 知识点解析请求 DTO
+    └── vo/
+        ├── SseReferenceVO.java         // 检索溯源首包 VO
+        └── KnowledgeGenerateVO.java    // 知识点解析响应 VO
 ```
+
+> ⚠️ **包结构必须与 `AGENT_INSTRUCTIONS.md` 1.1 保持一致**（那是全项目的包规范）。
+> 特别注意：Controller 一律放顶层 `controller/`，RAG 业务服务放 `service/rag/`，**不要**自建 `rag.controller` / `rag.service` / `rag.model` 这类子包——否则成员 A 与成员 B 写出的类会分散在两套目录下，合并后 import 全乱。
 
 ---
 
@@ -359,16 +406,18 @@ public class SseStreamService {
 
 ### 5.1 与组内成员的对接要求
 1. **与成员 B（后端业务）对接**：
-   - 课件切块完成后，回调成员 B 的 `CourseDocumentService.updateParseStatus(docId, CHUNKED, chunkCount)` 更新数据库状态。
-   - 问答结束时，通知成员 B 异步持久化 `qa_record` 表（提问内容、AI 回复、命中切块 ID、耗时）。
+   - 课件切块完成后，调用成员 B 的 `CourseDocumentService.updateParseStatus(docId, "CHUNKED", chunkCount)` 回写状态。
+     ⚠️ 第二个参数是**字符串字面量**（`"CHUNKED"` / `"PARSING"` / `"FAILED"`）。**不要写成裸标识符 `CHUNKED`**，否则 Java 编译报 `cannot find symbol`。
+   - 问答结束时，调用成员 B 的 `QaRecordService.saveStreamingRecord(...)` 落库（提问内容、AI 回复、命中切块引用、耗时），并把它返回的 `recordId` 放进 SSE `done` 包。
 2. **与成员 C（学生前端）对接**：
    - 严格保证 SSE 4 种事件类型的下发顺序，不能跳步。
    - 跨域支持：必须配置 `CorsRegistry` 允许 `GET /api/qa/chat/stream`，且不能启用分块缓存。
 3. **与成员 D（教师前端）对接**：
-   - 上传课件后，提供查询该课件已切分片段的接口，用于教师后台切块预览。
+   - 课件切块完成后必须把 `chunkCount` 回写进 `course_document` 表（见上条 `updateParseStatus`），教师端课件列表会展示"切块数"。
+   - **不提供"切块片段明细"接口**——该功能不在本期范围内，教师端只展示切块数量。
 
 ### 5.2 成员 A 验收与交付物自测表
 - [ ] 本地启动 Chroma 容器，执行切块入库无报错，可在 Chroma 管理端看到 `courseId` 标签。
 - [ ] 验证跨课程隔离：在课程 1 提问，绝不召回课程 2 的切块内容。
-- [ ] 验证无参考资料提问：提问不相关的政治或娱乐话题，模型触发“未找到相关说明”纪律。
+- [ ] 验证无参考资料提问：提一个**课件里完全没有的专业问题**（例如用《操作系统》的课件回答《计算机网络》的题目），模型必须回答"当前课程课件中未检索到相关内容"，而不是编造答案。
 - [ ] 在 Chrome 开发者工具 Network 中检查 `/api/qa/chat/stream`，`Content-Type: text/event-stream` 正常，流式打印无卡顿。

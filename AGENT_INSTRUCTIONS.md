@@ -51,12 +51,13 @@ com.smartqa.platform
 ├── service/
 │   ├── SysUserService.java
 │   ├── CourseService.java
-│   ├── CourseDocumentService.java
-│   ├── QaSessionService.java
-│   ├── QaRecordService.java
+│   ├── CourseDocumentService.java        // 含 updateParseStatus(docId, status, chunkCount)
+│   ├── QaSessionService.java             // 含 createSessionLazy(courseId, question)
+│   ├── QaRecordService.java              // 含 saveStreamingRecord(...) 与 pageRecords(...)
 │   └── rag/
-│       ├── DocumentIngestionService.java // 文档切片与入库
-│       └── RagRetrievalService.java      // 向量召回与上下文组装（单路向量检索，无纠偏库）
+│       ├── DocumentIngestionService.java // 文档切片与入库（含 removeDocumentVectors）
+│       ├── RagRetrievalService.java      // 向量召回与上下文组装（单路向量检索，无纠偏库）
+│       └── SseStreamService.java         // SSE 流式推送（4 事件 + 落库回写 recordId）
 ├── dao/                             // MyBatis-Plus Mapper 接口与 XML
 └── model/
     ├── entity/                      // 数据库表 1:1 映射
@@ -245,6 +246,8 @@ const appendTokenWithThrottle = (token: string) => {
   }
 };
 ```
+
+> 说明：上面引用的 `currentAiMessage`（当前 AI 消息的响应式对象）与 `scrollToBottom()`（滚动到底部）只是占位名称，**需要你在本组件内自行定义**（`const currentAiMessage = ref({ content: '' })`、`const scrollToBottom = () => { /* 容器 scrollTop = scrollHeight */ }`）。核心是节流逻辑本身。
 
 ### 2.3 路由守卫与角色控制 (`src/router/index.ts`)
 - 未登录用户访问除 `/login` 外的任何路径强制重定向到 `/login`。**本期没有注册功能**，账号由 `data.sql` 种子数据预置（`teacher01` / `student01`）。

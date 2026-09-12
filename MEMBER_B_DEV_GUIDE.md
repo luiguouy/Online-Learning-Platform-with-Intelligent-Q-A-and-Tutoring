@@ -457,9 +457,11 @@ registry.addInterceptor(qaRateLimitInterceptor)
 
 ### 5.1 对接配合要求
 1. **向成员 A 提供**：在 `qa_record` 表建立后，向成员 A 提供以下方法（`QaRecordService`）：
-   - `saveStreamingRecord(courseId, sessionId, question, answer, references, latencyMs)`：流式传输完毕后保存提问与完整回复，**返回生成的 `recordId`**（成员 A 需在 SSE `done` 包中回传）。
-   - `createSessionLazy(courseId, question)`（`QaSessionService`）：`sessionId=0` 时懒创建会话，标题取问题前 15 字符。
-   - `updateParseStatus(docId, status, chunkCount)`（`CourseDocumentService`）：**供成员 A 在切块完成后回写状态**（置为 `CHUNKED` 并写入切块数）。成员 A 指南 4.1 会直接调用此方法，**必须提供同名同参方法**，否则 A 无法更新解析状态。
+   - `Long saveStreamingRecord(Long courseId, Long sessionId, String question, String answer, List<SseReferenceVO> references, long latencyMs)`：流式传输完毕后保存提问与完整回复，**返回生成的 `recordId`**（成员 A 在 SSE `done` 包中回传）。
+     ⚠️ **返回值不能为 null**：成员 A 会把它直接写进 `Map.of("recordId", recordId, ...)`，而 `Map.of` 不接受 null 值，会抛 `NullPointerException`。
+   - `Long createSessionLazy(Long courseId, String question)`（`QaSessionService`）：`sessionId=0` 时懒创建会话（标题取问题前 15 字符），**返回新建的 `sessionId`**（成员 A 用它替换 `done` 包中的 `sessionId`）。
+   - `void updateParseStatus(Long docId, String status, Integer chunkCount)`（`CourseDocumentService`）：**供成员 A 在切块完成后回写状态**（如 `updateParseStatus(docId, "CHUNKED", chunks)`）。注意 `status` 是**字符串**，取值仅限 `PENDING`/`PARSING`/`CHUNKED`/`FAILED`。
+     ⚠️ **必须提供同名同参方法**，否则 A 无法更新解析状态，课件会永远停在 `PARSING`。
 2. **向成员 C（学生端）提供**：`/api/course/list`、`/api/qa/sessions`、`/api/qa/records`、`/api/qa/records/{id}/feedback`。
 3. **向成员 D（教师端）提供**：`/api/teacher/docs/list`、`/api/teacher/qa/records`（问答记录查看）、`/api/teacher/docs/{id}`（删除课件）。
 
