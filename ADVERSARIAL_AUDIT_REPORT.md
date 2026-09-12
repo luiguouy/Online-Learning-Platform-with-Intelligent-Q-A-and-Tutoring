@@ -4,7 +4,31 @@
 > **审计背景**：针对面向 AI Agent 自动化生成代码与 4 人本科生团队全栈交付方案的全面红蓝对抗性审查。  
 > **审计基准**：4 人协同零摩擦、接口零猜测、RAG 核心闭环零死锁、答辩演示零翻车。
 
-> **🟠 v3.0 复审（功能裁剪后的完整性检查）—— 最新一轮，请先读本节**
+> **🟢 v4.0 核实（代码级可编译性专项）—— 最新一轮，请先读本节**
+>
+> **触发条件**：组员**完全没有编程经验**，文档里的代码示例若不自洽，AI 生成的代码会直接编译失败，而组员**没有能力发现**。因此本轮不看措辞，只验证"代码链条是否闭合"。
+> **核查方法**：① 方法签名链逐个对齐（调用方 vs 提供方，比参数顺序/类型/返回类型）；② 包结构比对；③ 类定义完整性；④ Vue 模板变量与事件处理器自动化校验；⑤ 配置键 → getter → yml 三方映射核对。
+> **结论**：新发现 8 项（P0 1 项、P1 3 项），**已全部修复**。
+>
+> | ID | 级别 | 问题（一句话） | 涉及文档 | 状态 |
+> | :--- | :--- | :--- | :--- | :--- |
+> | **C1** | **P0** | `updateParseStatus(docId, CHUNKED, chunkCount)` 中的 `CHUNKED` 是**裸标识符**，Java 会编译报 `cannot find symbol`（需要字符串字面量） | `MEMBER_A_DEV_GUIDE` 5.1 | 已修：改为字符串字面量并加显式警示 |
+> | **C2** | **P1** | **包结构冲突**：A 指南用 `com.smartqa.platform.rag.*`（自建 controller / service / model 子包），而 `AGENT_INSTRUCTIONS` 1.1 规定 Controller 在顶层 `controller/`、RAG 服务在 `service/rag/`。A 与 B 是同一后端工程的两人，会写出**两套目录结构**，合并后 import 全乱 | `MEMBER_A_DEV_GUIDE` 三 / `AGENT_INSTRUCTIONS` 1.1 | 已修：以 1.1 为准统一，并加"禁止自建 rag.* 子包"警示 |
+> | **C3** | **P1** | **`RagConfigProperties` 类定义完全缺失**：A 指南代码调用 `getChunk().getSize()` / `getTopK()` / `getSimilarityThreshold()`，但该类从未给出字段定义，Agent 只能猜——猜错即编译失败或静默取到 null | `MEMBER_A_DEV_GUIDE` 2 | 已修：补完整类定义（llm/chroma/chunk 三层静态内部类 + 逐字段标注对应 yml 键 + `topK`/`similarityThreshold` 易错提示） |
+> | **C4** | **P1** | B 指南 5.1 的**方法签名不完整**：`saveStreamingRecord` / `createSessionLazy` / `updateParseStatus` 只给了方法名，缺返回类型与参数类型；且未说明 `recordId` 不可为 null——A 会把它放进 `Map.of(...)`，而 **`Map.of` 不接受 null 值**，会抛 NPE | `MEMBER_B_DEV_GUIDE` 5.1 | 已修：补全类型签名与"返回值不可为 null"的约束 |
+> | **C5** | P2 | D 指南课件表格出现**两个 `chunkCount` 列**（原表已有"切块片段数"，v3.0 修复时又加了一列） | `MEMBER_D_DEV_GUIDE` 4.1 | 已修：删除重复列 |
+> | **C6** | P2 | A 指南 5.1 承诺"提供查询该课件已切分片段的接口，用于教师后台切块预览"——**该接口不在 12 接口清单内**（范围外功能） | `MEMBER_A_DEV_GUIDE` 5.1 | 已修：改为只回写 `chunkCount`，并注明不提供片段明细 |
+> | **C7** | P2 | A 指南自测用例写"提问不相关的**政治**或娱乐话题"作为拒答测试语料 | `MEMBER_A_DEV_GUIDE` 5.2 | 已修：改为"课件外的专业问题"（如用《操作系统》课件问《计算机网络》的题） |
+> | **C8** | P2 | `AGENT_INSTRUCTIONS` 1.1 的项目结构**缺 `SseStreamService`**；2.2 节流代码里的 `currentAiMessage` / `scrollToBottom` 未说明来源 | `AGENT_INSTRUCTIONS` 1.1 / 2.2 | 已修：补 SseStreamService 并标注各 Service 承载的关键方法；2.2 加占位变量说明 |
+>
+> **本轮未发现问题的项（逐项验证过，一并列出）**：
+> - **方法签名链一致**：`processAndEmbedDocument(InputStream, Long, Long, String)` → A 定义、B 调用 ✓；`removeDocumentVectors(Long)` → A 定义、B 调用 ✓；`saveStreamingRecord` 的 6 个参数顺序与类型在 A 的调用处与 B 的签名处一致，返回 `Long` ✓。
+> - **Vue 组件模板变量**：对 4 个组件脚本化校验，模板引用的**事件处理器全部在 `<script setup>` 中定义**，无未定义引用（v3.0 修复的 `previewChunks` 类问题未复发）。
+> - **前端字段 ↔ DDL**：教师端表格用的 `fileName` / `fileType` / `chunkCount` / `parseStatus` / `createdAt` 与 DDL 下划线列名驼峰对应 ✓，状态四态判断与规范一致 ✓。
+> - **配置键 ↔ getter**：`getChunk().getSize()/getOverlap()/getTopK()/getSimilarityThreshold()` ↔ `rag.chunk.size/overlap/top-k/similarity-threshold` ✓；`@Value("${file.upload-dir}")` ↔ `file.upload-dir` ✓。
+> - **结构完整**：12 个 md 代码围栏全部成对。
+>
+> **🔵 v3.0 复审（功能裁剪后的完整性检查）**
 >
 > **触发条件**：v2.0 功能裁剪（删除人工纠偏、ECharts 看板、知识点自测题、评测与演示兜底，整份删除 `EVALUATION_AND_DEMO.md`，净删 300+ 行）后，必须验证是否留下**断链引用、过时数字与未闭环的旧问题**。
 > **审查方法**：双路交叉验证（人工逐条比对 + 独立审查 Agent 全量扫描）+ 全仓关键词检索 + 引用链与代码围栏自动化校验。
