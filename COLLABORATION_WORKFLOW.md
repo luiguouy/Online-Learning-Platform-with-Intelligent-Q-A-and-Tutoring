@@ -109,7 +109,7 @@ main            ← 演示/发布分支，永远可运行，只有组长能合�
 
 **前端（C/D 互审）**
 - [ ] 无 `any` 泛滥、无未处理的 Promise（控制台无报错）
-- [ ] Token 读取统一用 `satoken` 键，请求头统一 `Authorization: Bearer <token>`
+- [ ] Token 存 `localStorage` 的键名统一为 `satoken`；请求头统一为 `Authorization: Bearer <token>`（**头值必须带 `Bearer ` 前缀**）
 - [ ] SSE 解析按 JSON 处理，未假设裸文本
 - [ ] 有加载态 / 空状态 / 错误态，不是只有成功路径
 

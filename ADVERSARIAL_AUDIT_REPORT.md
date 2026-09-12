@@ -4,6 +4,45 @@
 > **审计背景**：针对面向 AI Agent 自动化生成代码与 4 人本科生团队全栈交付方案的全面红蓝对抗性审查。  
 > **审计基准**：4 人协同零摩擦、接口零猜测、RAG 核心闭环零死锁、答辩演示零翻车。
 
+> **🔴 v6.0 复审（外部第三方 API 查证）—— 最新一轮，请先读本节**
+>
+> **触发**：用户连问两次"文档确定没问题吗？"——把前 5 轮都没覆盖的盲区暴露出来：**文档里大量代码依赖第三方 API（LangChain4j 0.35、Sa-Token、MyBatis-Plus），但前 5 轮的"核实"全部停留在文档内部一致性，从未对照过官方文档查证 API 名字、参数、行为**。如果 API 写错，组员的 AI 会照错生成，零经验完全发现不了。
+>
+> ### v6.0 发现与处理（按严重度倒序）
+>
+> | ID | 级别 | 问题 | 处理 |
+> |----|------|------|------|
+> | **V1** | **P1（联调即崩）** | **Sa-Token 鉴权配置方案本身选错**。v3.0 时为解决"`token-name: satoken` 与 v1.2 文档要求以 Authorization 为准"的矛盾，发明了"**双头同发**"（`satoken: <token>` + `Authorization: Bearer <token>`）的非主流方案。但查证 RuoYi-Plus 官方文档、continew-starter 等四个独立来源显示，**主流方案是 `token-name: Authorization` + `token-prefix: Bearer`，只发一个 Authorization 头**。两个隐患：① `token-prefix: Bearer` 语义上要求头值带 `Bearer ` 前缀，而我让前端发的是裸 token；② 非主流配置在不同 Sa-Token 版本下宽容度未经验证 | **已修**：`token-name` 改为 `Authorization`；前端只发一个 `Authorization: Bearer <token>` 头；所有相关位置（AGENT_INSTRUCTIONS 1.2、application-example.yml、DEV_SPEC 4.2、README 铁律 6、GLOSSARY 401 条目、MEMBER_C SSE 客户端、MEMBER_D uploadHeaders、C 指南 request.ts 注释、COLLABORATION_WORKFLOW 6.1）**统一改造** |
+> | **V2** | P1 | **v3.0 引入了一条错误的禁令**：A 指南 4.1 写"严禁写 `DocumentByParagraphSplitter`，那是 0.29 之前的类名、0.35 已移除"——查官方 javadoc 确认，**该类从未被移除**，与 `DocumentSplitters` 同包、同为官方推荐用法。误判来源：把"内部项目曾遇到 bug"误当成"官方 API 移除" | **已修**：A 指南 4.1 改为"`DocumentSplitters.recursive(...)` 推荐使用；若偏好段落/句子级也可直接用 `DocumentByParagraphSplitter`/`DocumentBySentenceSplitter`，三者均可"。审查报告旧禁令条目加 v6.0 修订标注 |
+> | V3 | P2（核实后通过） | 抽查的 6 项 LangChain4j 0.35 API（`OpenAiStreamingChatModel.builder().baseUrl().apiKey().modelName().build()` / `OpenAiEmbeddingModel.builder()...` / `ChromaEmbeddingStore.builder().baseUrl().collectionName().build()` / `EmbeddingSearchRequest.builder().queryEmbedding().maxResults().minScore().filter()` / `embeddingStore.removeAll(filter)` / `Filter.and(IsEqualTo...)`）——**全部与官方 javadoc 一致**，无遗漏 | 无需修改 |
+> | V4 | P2（核实后通过） | RAG 检索链路的 `DocumentSplitters.recursive(size, overlap)`、`StreamingChatLanguageModel.generate(...)`、`TextSegment.text()` 拼接——**逐字对照官方 0.35 文档**，无错误 | 无需修改 |
+>
+> ### 关于 v3.0 双头铁律的纠正说明（不推翻历史）
+>
+> v3.0 N8 项（M2/M19/N8）记录了"双头铁律"作为修复方案——**该方案当时确实解决了"前后端一致不打架"的问题，但事后查证表明它不是 Sa-Token 的主流用法**，存在两个潜在风险（头值前缀宽容度未知、非主流配置兼容性未经验证）。v6.0 改用主流方案（单 `Authorization` 头），不否定 v3.0 的"必须前后端一致"这条原则，但**纠正具体实现**。
+>
+> **保留 v3.0 N8/M2/M19 条目**作为审计追踪：它们记录了"我们曾经选错过方案、为什么选错、如何纠正"——下一轮审查或新人接手时知道完整决策路径。如果只把"修复"留着、把"选错的原因"删掉，下一轮很可能再次踩同样的坑。
+>
+> ### v6.0 验证清单（每项已逐项查证）
+>
+> | 验证项 | 结果 |
+> | :--- | :--- |
+> | LangChain4j 0.35 `OpenAiStreamingChatModel` builder 用法 | ✓ 与官方 javadoc 一致 |
+> | LangChain4j 0.35 `OpenAiEmbeddingModel` builder 用法 | ✓ 一致 |
+> | LangChain4j 0.35 `ChromaEmbeddingStore` builder 用法 | ✓ 一致 |
+> | LangChain4j 0.35 `EmbeddingSearchRequest` / `Filter` / `IsEqualTo` 用法 | ✓ 一致 |
+> | LangChain4j 0.35 `DocumentSplitters` / `DocumentByParagraphSplitter` / `DocumentBySentenceSplitter` 三者并存可用 | ✓ 官方 javadoc 确认 |
+> | Sa-Token 1.37+ `token-name: Authorization` + `token-prefix: Bearer` 是主流用法 | ✓ RuoYi-Plus/continew-starter 四个独立来源一致 |
+> | 所有现存代码引用 `Authorization: Bearer <token>` 头值是否带 `Bearer ` 前缀（含空格） | ✓ AGENT_INSTRUCTIONS/C 指南/D 指南/GLOSSARY 全部一致强调"必须带前缀" |
+>
+> ### 仍然存在的盲区（无法消除，只能靠组员执行验证）
+>
+> - **Spring Boot 3.x 与 Sa-Token 1.37+ 的小版本兼容性**（如 1.37.0 vs 1.38.0 是否有 breaking change）——文档中所有 API 都按"Sa-Token 1.37+ 接口签名稳定"前提写。如未来小版本有破坏性变更，需另行更新。
+> - **LangChain4j 0.35 与 chroma 客户端 jar 的网络层兼容性**（Chroma HTTP API 路径在不同版本是否一致）——A 的 Agent 需在 Spike 阶段实际启动 Chroma 容器验证。
+> - **Element Plus 2.x 在 Vue 3.5 下的组件 API 稳定性**——`el-upload`、`el-table` 的 slot/事件签名在不同小版本偶有调整。
+>
+> 这三项**任何一处出错仍会导致项目跑不起来**，但**只能通过实际跑一次验证**，无法在文档里 100% 闭环。建议组员开工第一天就按 Spike 流程跑通最小闭环（详见 `AGENT_INSTRUCTIONS.md` 三、），跑不通立刻反馈。
+
 > **🟣 v5.0 核实（代码级第二轮：类定义与实现骨架）—— 最新一轮，请先读本节**
 >
 > **触发条件**：v4.0 核对了"方法签名链"，本轮下探一层——**许多类在文档里只有名字、没有代码**。对零经验组员而言，AI 只能凭猜测生成，猜错就是编译失败或启动失败，而组员**无从判断**。
@@ -102,13 +141,13 @@
 > | **N5** | P2 | 接口矩阵**缺课件删除接口**；`reindex` 提供方标注为"成员 A"，但 A 指南根本没有 Controller，实际只能由 B 出接口 | `TEAM_WORK_DIVISION.md` 3 | 已修：矩阵 9 → 11 个接口（**v2.0 裁剪后为 12 个**），提供方改为"B（接口）+ A（服务）" |
 > | **N6** | P2 | 分工文档承诺集成 KaTeX 数学公式，但 C 指南未实现、依赖未声明，是"纸面需求" | `TEAM_WORK_DIVISION.md` 2.3 | 已修：三周计划中明确列为 **Won't 不做** |
 > | **N7** | P1 | 原 5 周工作量压进 3 周，**没有裁剪清单**，第 3 周必然崩在"到处是半成品" | 全局 | 已修：`THREE_WEEK_PLAN.md` 1.2 给出 MoSCoW 优先级与倒序裁剪清单 |
-> | **N8** | **P0** | **鉴权头自相矛盾**：`token-name: satoken` 意味着 Sa-Token 只读 `satoken` 头，但文档写"以 Authorization 为准、不再单独发 satoken"，而 C 指南 SSE 客户端**只发了 Authorization** → **SSE 直接 401，主功能不可用** | `AGENT_INSTRUCTIONS` 1.2/2.1、`DEV_SPECIFICATION` 4.2、`MEMBER_C` 4.1 | 已修：锁定"**双头同发**"铁律，SSE 客户端补齐 `satoken` 头 |
+> | **N8** | **P0** | **鉴权头自相矛盾**：`token-name: satoken` 意味着 Sa-Token 只读 `satoken` 头，但文档写"以 Authorization 为准、不再单独发 satoken"，而 C 指南 SSE 客户端**只发了 Authorization** → **SSE 直接 401，主功能不可用** | `AGENT_INSTRUCTIONS` 1.2/2.1、`DEV_SPECIFICATION` 4.2、`MEMBER_C` 4.1 | **v3.0 修**：锁定"**双头同发**"铁律，SSE 客户端补齐 `satoken` 头<br>⚠️ **v6.0 更正**：v3.0 的双头方案为非主流用法（主流是 `token-name: Authorization` 单头），v6.0 已改为单 `Authorization: Bearer <token>` 头方案 |
 > | **N9** | P0 | 全局 `logic-delete-field: isDeleted`，但 DDL 只有部分表有 `is_deleted` 列 → 缺列的表调用 `removeById()` 抛 `Unknown column 'is_deleted'` | `AGENT_INSTRUCTIONS` 1.2 / `MEMBER_B` 2 | 已修：B 指南 4.5 加"6 张表全部补齐"提醒 |
 > | **N10** | P1 | 上传**路径穿越**：文件名未清洗，且正则中 `.` 会匹配 `/`，`../../evil.pdf` 可通过校验并写到上传目录之外 | `MEMBER_B` 4.3 | 已修：加 `Paths.get(name).getFileName()` 剥离路径 |
 > | **N11** | P1 | `/api/knowledge/generate` 单次消耗大量 Token 却**无鉴权、无限流**，可被刷爆额度 | `MEMBER_A` 1 | 已修：明确要求 `StpUtil.checkLogin()` + 按用户限流 |
 > | **N12** | P1 | 接口矩阵缺 `/api/teacher/docs/list`、`/api/teacher/stats/overview`，但 D 指南代码已在调用这两个路径 | `TEAM_WORK_DIVISION` 3 / `MEMBER_D` | 已修：矩阵与 B 指南 4.5 同步补齐（当时 9 → 13 接口；**v2.0 裁剪后为 12 个**，见 v2.0 说明） |
 > | **N13** | P2 | 限流响应体字段名 `msg` 与统一响应 `Result.message` 不一致，前端弹窗显示 `undefined` | `EVALUATION_AND_DEMO` 4.2（已迁至 `MEMBER_B_DEV_GUIDE` 4.6） | 已修：统一为 `message` |
-> | **N14** | P2 | A 指南**文字与代码打架**：文字写 `DocumentByParagraphSplitter` 与 snake_case 元数据键，代码却用 `DocumentSplitters.recursive` + camelCase → Agent 照文字写会**编译失败**或**检索静默失效** | `MEMBER_A` 4.1 | 已修：描述改为与代码一致并加警示 |
+> | **N14** | P2 | A 指南**文字与代码打架**：文字写 `DocumentByParagraphSplitter` 与 snake_case 元数据键，代码却用 `DocumentSplitters.recursive` + camelCase → **元数据键名不一致会导致检索静默失效**（切块器本身两者都合法）。<br>⚠️ **v5.1 更正**：本条当时还断言"`DocumentByParagraphSplitter` 已被 0.35 移除、写了会编译失败"——**该断言经查官方 javadoc 后被证伪，此类至今存在且可用**，已在 A 指南中更正说明 | `MEMBER_A` 4.1 | 已修 |
 > | **N15** | P3 | 上传注释写"初始状态 PENDING"但代码写 `PARSING`；CI 未考虑学生端/教师端双前端工程布局 | `MEMBER_B` 4.3 / `.github/workflows/ci.yml` | 已修：注释对齐 + CI 加多前端说明 |
 >
 > **复审方法说明**：本轮采用**双路交叉验证**——一路人工逐条比对，一路独立审查 Agent 全量扫描，双方独立取证后合并去重，最终确认 15 项。两条路径各自都曾出现误判（例如把已在依赖中的 `markdown-it` 当成缺失、把实际已创建的 `THREE_WEEK_PLAN.md` 当成不存在），**均经回读原文证伪后剔除**——审查结论只采信有 `文件:行号` 证据支撑的条目。

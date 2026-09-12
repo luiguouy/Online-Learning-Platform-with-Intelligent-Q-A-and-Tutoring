@@ -48,7 +48,7 @@ mybatis-plus:
       logic-not-delete-value: 0
 
 sa-token:
-  token-name: satoken                 # 前端 localStorage 键名，全团队统一
+  token-name: Authorization           # ★ Sa-Token 读取的请求头名（必须是这个）
   timeout: 604800                     # 7 天免登录
   active-timeout: 86400
   is-concurrent: true

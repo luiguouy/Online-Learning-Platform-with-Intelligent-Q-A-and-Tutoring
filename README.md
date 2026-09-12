@@ -69,7 +69,7 @@
 3. **SSE 协议只有 4 种事件**：`references` / `message` / `done` / `error`，全部 JSON 载荷，`done` 必含 `recordId`——格式以 `DEV_SPECIFICATION.md` 4.2 为唯一标准。
 4. **所有 REST 接口返回 `Result<T>` 统一包装**，严禁裸返回。
 5. **严禁硬编码密钥**；LLM Key、数据库密码一律环境变量注入。
-6. **前后端字段不许猜**：接口先由成员 B 出 Knife4j 文档，前端照文档调用。Token 存 `localStorage` 统一键名 `satoken`，请求时**必须同时携带 `satoken` 与 `Authorization: Bearer <token>` 两个请求头**——只发后者会被判定未登录返回 401（见 `DEV_SPECIFICATION.md` 4.2）。
+6. **前后端字段不许猜**：接口先由成员 B 出 Knife4j 文档，前端照文档调用。Token 存 `localStorage` 统一键名 `satoken`，请求头统一 `Authorization: Bearer <token>`——**头值必须带 `Bearer ` 前缀（含空格）**，只写裸 token 会被判未登录返回 401（见 `DEV_SPECIFICATION.md` 4.2）。
 
 ## 四、 当前项目阶段（3 周冲刺）
 

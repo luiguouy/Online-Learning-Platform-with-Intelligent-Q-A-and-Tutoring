@@ -62,7 +62,7 @@ src/
 │   ├── chatStore.ts           // 当前会话、流式消息与参考出处Pinia状态
 │   └── courseStore.ts         // 当前选中课程状态
 ├── utils/
-│   ├── request.ts             // axios 统一封装：自动带 satoken + Authorization 双头、解包 Result、401 跳登录（实现见 AGENT_INSTRUCTIONS 2.1）
+│   ├── request.ts             // axios 统一封装：自动注入 Authorization: Bearer 头、解包 Result、401 跳登录（实现见 AGENT_INSTRUCTIONS 2.1）
 │   └── sseClient.ts           // 核心SSE流式请求封装 (含中断控制器)
 └── views/student/
     ├── StudentLayout.vue      // 学生端主布局 (左侧栏+主操作区)
@@ -114,9 +114,8 @@ export class SseChatClient {
       await fetchEventSource(url, {
         method: 'GET',
         headers: {
-          // 两个头必须同时发：satoken 是 Sa-Token 唯一可靠识别来源，
-          // 只发 Authorization 会被判定未登录（401）。详见 AGENT_INSTRUCTIONS 1.2 鉴权头铁律。
-          'satoken': token,
+          // 头值必须带 Bearer 前缀：sa-token 配的是 token-name=Authorization + token-prefix=Bearer
+          // 只发裸 token 会被判定未登录（401）。详见 AGENT_INSTRUCTIONS 1.2 鉴权头铁律。
           'Authorization': `Bearer ${token}`,
           'Accept': 'text/event-stream',
         },

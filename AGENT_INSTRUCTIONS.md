@@ -105,7 +105,7 @@ mybatis-plus:
       logic-not-delete-value: 0
 
 sa-token:
-  token-name: satoken
+  token-name: Authorization       # ★ 关键：Sa-Token 读取的请求头名就是它
   timeout: 604800 # 7天免登录
   active-timeout: 86400
   is-concurrent: true
@@ -113,16 +113,18 @@ sa-token:
   token-style: uuid
   is-read-header: true
   is-read-cookie: false
-  token-prefix: Bearer # 允许从 Authorization: Bearer <token> 中剥离前缀后识别
+  token-prefix: Bearer            # ★ 关键：头值须带 "Bearer " 前缀（含一个空格）
 
 # ============================================================================
-# ⚠️ 鉴权请求头铁律（v1.2 复审锁定，全团队唯一标准）
+# ⚠️ 鉴权请求头铁律（v6.0 锁定，全团队唯一标准）
 # ----------------------------------------------------------------------------
-# Sa-Token 默认按 token-name（此处为 satoken）读取请求头。
-# 前端与 SSE 客户端必须【同时】发送下面两个头，缺一不可：
-#     satoken: <token>                 ← Sa-Token 原生识别，拦截器唯一可靠来源
-#     Authorization: Bearer <token>     ← 便于网关、调试与第三方约定
-# 只发 Authorization 而不发 satoken → 拦截器判定未登录，返回 401。
+# token-name 设为 Authorization，所以 Sa-Token 读的是 Authorization 请求头；
+# 又配了 token-prefix，因此头值必须是「Bearer + 空格 + token」：
+#
+#     Authorization: Bearer <token>
+#
+# 前端只需要发这一个头（不要再另发 satoken 头，那是多余的）。
+# 前端 localStorage 的键名仍沿用 satoken —— 它只是本地存储的名字，与请求头名无关。
 # 本条对 SSE（/api/qa/chat/stream）同样适用，详见 2.1 请求层与 C 指南 4.1。
 # ============================================================================
 
@@ -193,12 +195,11 @@ const request = axios.create({
   timeout: 20000,
 });
 
-// 请求拦截器
+// 请求拦截器：统一注入鉴权头（只发这一个头即可）
 request.interceptors.request.use((config) => {
-  const token = localStorage.getItem('satoken');
+  const token = localStorage.getItem('satoken');   // 存储键名沿用 satoken，与请求头名无关
   if (token) {
-    config.headers['Authorization'] = `Bearer ${token}`;
-    config.headers['satoken'] = token;
+    config.headers['Authorization'] = `Bearer ${token}`;   // 头值必须带 Bearer 前缀
   }
   return config;
 });

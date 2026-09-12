@@ -50,7 +50,7 @@ src/views/teacher/
     └── DocUploadModal.vue     // 课件拖拽上传弹窗
 ```
 
-> **依赖的公共文件**：两个页面都使用 `src/utils/request.ts`（axios 统一封装，自动携带 `satoken` + `Authorization` 双请求头并解包 `Result.data`）。
+> **依赖的公共文件**：两个页面都使用 `src/utils/request.ts`（axios 统一封装，自动注入 `Authorization: Bearer <token>` 头并解包 `Result.data`）。
 > 若教师端是**独立的前端工程**，需要从 `AGENT_INSTRUCTIONS.md` 2.1 节复制一份 `request.ts` 到本工程 `src/utils/` 下；
 > 若与学生端**共用同一个前端工程**，则直接复用即可。**无论如何都不要在页面里直接用裸 axios。**
 
@@ -127,7 +127,7 @@ src/views/teacher/
 import { ref, computed, onMounted } from 'vue';
 import { Upload, UploadFilled } from '@element-plus/icons-vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-// 必须用统一封装实例：它自动携带 satoken 与 Authorization 双请求头，并自动解包 Result.data。
+// 必须用统一封装实例：它自动注入 Authorization: Bearer <token> 头，并自动解包 Result.data。
 // 千万不要用裸 axios —— 不带头会让 /api/teacher/** 请求被判未登录（401）。
 import request from '@/utils/request';
 
@@ -135,10 +135,10 @@ const docList = ref<any[]>([]);
 const uploadDialogVisible = ref(false);
 const currentCourseId = ref(1);
 
-// el-upload 使用自己的上传通道，**不经过** axios 拦截器，因此必须手动补上双请求头
+// el-upload 使用自己的上传通道，**不经过** axios 拦截器，因此必须手动补鉴权头
 const uploadHeaders = computed(() => {
   const token = localStorage.getItem('satoken') || '';
-  return { satoken: token, Authorization: `Bearer ${token}` };
+  return { Authorization: `Bearer ${token}` };   // 头值必须带 Bearer 前缀
 });
 
 const fetchDocs = async () => {
@@ -261,7 +261,7 @@ onMounted(fetchDocs);
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-// 必须用统一封装实例，它会自动带上 satoken 与 Authorization 双请求头；直接用裸 axios 会 401
+// 必须用统一封装实例，它会自动带上 Authorization: Bearer <token> 头；直接用裸 axios 会 401
 import request from '@/utils/request';
 import { ElMessage } from 'element-plus';
 

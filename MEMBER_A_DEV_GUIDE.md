@@ -251,8 +251,10 @@ com.smartqa.platform                  ← 与 AGENT_INSTRUCTIONS 1.1 完全一�
 **实现要点**：
 - 输入：`MultipartFile file`, `Long courseId`, `Long docId`
 - 解析：使用 Tika 将 PDF/Markdown 转换为纯净文本并清洗不可见字符。
-- 分块：使用 `DocumentSplitters.recursive(size, overlap)`（**LangChain4j 0.35 唯一正确写法**），最大字符 400，重叠 50。
-  - ⚠️ **严禁写 `DocumentByParagraphSplitter` / `DocumentBySentenceSplitter`**：那是 0.29 之前的类名，0.35 已移除，写了直接编译失败。
+- 分块：**下面两种写法都是 LangChain4j 的正式 API，任选其一即可，但不要混用**（参数均为「最大片段长度, 重叠长度」）：
+  - `DocumentSplitters.recursive(400, 50)` —— 递归多级切分，**本项目推荐**（与下方代码一致）
+  - `new DocumentByParagraphSplitter(400, 50)` —— 按段落切分，段落过长时自动降级为句子切分
+  两者同属 `dev.langchain4j.data.document.splitter` 包，均长期可用，不存在"已移除"的问题。
 - 注入元数据：必须写入 **`courseId`（用于租户隔离）、`docId`、`fileName`、`chunkIndex`**。
   - ⚠️ **必须是 camelCase**。严禁写成 `course_id` / `doc_id` / `file_name` 等 snake_case——键名与检索时 `new IsEqualTo("courseId", ...)` 不一致会导致**过滤静默失效**（表现为：换了课程仍能搜到别的课的内容，且无任何报错）。
 

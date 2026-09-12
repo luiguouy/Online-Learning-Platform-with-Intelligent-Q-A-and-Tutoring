@@ -129,7 +129,7 @@ CI 就是**一个所有人都一样的第三方电脑**，每次提交都自动�
 
 | 报错 / 现象 | 最可能的原因 | 处理 |
 | :--- | :--- | :--- |
-| `401 Unauthorized` / 未登录 | Token 没带或过期 | **必须同时带两个请求头**：`satoken: <token>` 与 `Authorization: Bearer <token>`（只发后者会被判未登录）；若仍 401 则重新登录 |
+| `401 Unauthorized` / 未登录 | Token 没带、已过期，或**头值少了 `Bearer ` 前缀** | 确认请求头是 `Authorization: Bearer <token>`（只写裸 token 不行）；仍 401 就重新登录 |
 | `403 Forbidden` | 角色不对，或没实现 `StpInterfaceImpl` | 见 `MEMBER_B_DEV_GUIDE.md` 3.3；确认账号角色是 TEACHER/STUDENT |
 | `404 Not Found` | 接口路径或请求方式写错 | 对照 Knife4j 检查路径与 GET/POST |
 | `500` + `NullPointerException` | 某个对象没取到就调用 | 让 AI 定位空指针行，加判空 |

@@ -105,7 +105,7 @@ Day1 环境就绪
 | # | 任务 | 交付物 | 验收标准 | 截止 |
 | :--- | :--- | :--- | :--- | :--- |
 | C1.1 | Vue3 + Vite + Element Plus 脚手架 | 可运行的空项目 | `npm run dev` 打开有页面 | Day 2 |
-| C1.2 | 请求层 `request.ts`（token 拦截器） | TS 文件 | 请求**自动带 `satoken` 与 `Authorization` 双头**；401 跳登录 | Day 3 |
+| C1.2 | 请求层 `request.ts`（token 拦截器） | TS 文件 | 请求**自动带 `Authorization: Bearer <token>` 头**；401 跳登录 | Day 3 |
 | C1.3 | `sseClient.ts` 骨架（先按契约写） | TS 文件 | 能通过 `event:` 区分 4 类事件并打印到 console | Day 4 |
 | C1.4 | 登录页 + 路由守卫 | Vue 页面 | 用种子账号能登录并跳转；未登录访问被拦截 | Day 5 |
 | C1.5 | 主页布局（课程切换 + 侧边会话栏） | Vue 页面 | 页面结构完整，数据用 Mock | Day 7 |

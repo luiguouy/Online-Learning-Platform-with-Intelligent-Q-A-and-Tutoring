@@ -194,13 +194,15 @@ Connection: keep-alive
 
 **会话懒创建规则**：前端进入页面时不预建会话；`sessionId` 传 `0` 或省略时，后端自动在 `qa_session` 插入新会话（标题取问题前 15 个字符），并在 `done` 包中回传真实 `sessionId` 与 `recordId`。
 
-**鉴权请求头统一约定（v1.2 复审锁定，全团队唯一标准）**：登录返回的 Token 一律以键名 `satoken` 存入 `localStorage`。
-所有请求（**含 SSE**）必须**同时**携带下面两个请求头，缺一不可：
+**鉴权请求头统一约定（v6.0 锁定，全团队唯一标准）**：登录返回的 Token 以键名 `satoken` 存入 `localStorage`（**它只是本地存储的名字，与请求头名无关**）。
+所有请求（**含 SSE**）只需携带**一个**请求头：
 
-- `satoken: <token>` —— Sa-Token 原生识别来源，**拦截器判定登录的唯一可靠依据**
-- `Authorization: Bearer <token>` —— 网关、调试与第三方约定
+```http
+Authorization: Bearer <token>
+```
 
-只发 `Authorization` 而不发 `satoken` → Sa-Token 判定未登录，返回 **401**。SSE 接口同样适用（见 `MEMBER_C_DEV_GUIDE.md` 4.1 与 `AGENT_INSTRUCTIONS.md` 1.2）。
+依据：`sa-token.token-name` 配为 `Authorization`、`token-prefix` 配为 `Bearer`，因此 Sa-Token 读取该请求头并自动剥离 `Bearer ` 前缀。
+⚠️ **头值必须带 `Bearer ` 前缀（含一个空格）**。只写裸 token 会被判定未登录，返回 **401**。不要再额外发送 `satoken` 请求头——那是多余的。
 
 **课件解析状态机统一约定**：`PENDING(排队中) -> PARSING(切块中) -> CHUNKED(已就绪) -> FAILED(失败)`，数据库与前端标签均使用此四态，禁止使用 `PROCESSING`/`SUCCESS` 等别名。
 
