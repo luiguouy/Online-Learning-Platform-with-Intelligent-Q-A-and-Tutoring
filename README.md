@@ -14,7 +14,6 @@
 | 4 | `COLLABORATION_WORKFLOW.md` | 全员必读 | **决策权 RACI、分支保护、PR/Review 门禁、CI、完成的定义（DoD）、风险登记册** |
 | 5 | `AGENT_INSTRUCTIONS.md` | 喂给 AI 的第一份文件 | Agent 禁令、application.yml 完整模板、线程池规范、冒烟验收清单 |
 | 6 | `MEMBER_X_DEV_GUIDE.md` | 各自认领 | 成员 A（RAG/SSE）、B（业务/DB）、C（学生前端）、D（教师前端） |
-| 7 | `ADVERSARIAL_AUDIT_REPORT.md` | 遇到问题时查 | 历史踩坑分析与答辩防御预案（缺陷已回写进上述文档，此处仅作背景） |
 
 ### 配套资产（需复制到代码仓生效）
 
