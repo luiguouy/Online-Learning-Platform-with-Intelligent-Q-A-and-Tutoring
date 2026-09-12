@@ -29,11 +29,14 @@
     "axios": "^1.6.8"
   },
   "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.4",
     "typescript": "^5.2.2",
-    "vite": "^5.1.6"
+    "vite": "^5.1.6",
+    "vue-tsc": "^2.0.6"
   }
 }
 ```
+> ⚠️ **`@vitejs/plugin-vue` 与 `vue-tsc` 一个都不能少**：没有前者，Vite 根本不认识 `.vue` 文件，`npm run build` 直接失败；没有后者，README 纪律 2 要求的 `npx vue-tsc --noEmit` 类型检查跑不了。建议 `scripts` 配为 `"dev": "vite"`、`"build": "vue-tsc --noEmit && vite build"`。
 
 > **本项目不使用 ECharts**：学情可视化看板已按需求裁剪（不属于核心功能），**不要安装任何图表库**，也不要引入 `echarts` / `echarts-wordcloud` / `@types/echarts`。
 

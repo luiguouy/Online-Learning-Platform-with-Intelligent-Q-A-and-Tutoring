@@ -186,6 +186,26 @@ file:
 
 ## 二、 前端工程实现（面向前端 Agent 任务）
 
+### 2.0 工程根配置 (`vite.config.ts`) —— C/D 两个前端都必须使用此模板
+```typescript
+import { defineConfig } from 'vite';
+import vue from '@vitejs/plugin-vue';
+
+export default defineConfig({
+  plugins: [vue()],                       // 必须：否则 Vite 不认识 .vue 文件
+  server: {
+    port: 5173,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8080',  // 后端端口固定 8080，见 1.2 application.yml
+        changeOrigin: true,
+      },
+    },
+  },
+});
+```
+> ⚠️ 三处不得改动：① `plugins: [vue()]` 缺失则构建直接失败；② 代理路径 `/api` 与 `request.ts` 的 `baseURL` 一致；③ `target` 端口 8080 与后端 `server.port` 一致。SSE 走同一代理即可（`@microsoft/fetch-event-source` 走 HTTP 长连接，Vite 代理默认支持流式转发）。
+
 ### 2.1 请求层封装 (`src/utils/request.ts`)
 ```typescript
 import axios from 'axios';

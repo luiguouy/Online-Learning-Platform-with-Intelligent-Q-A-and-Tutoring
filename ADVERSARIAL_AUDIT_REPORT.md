@@ -17,8 +17,10 @@
 > | W3 | 核实通过 | **7 个后端 Maven 依赖版本全部真实存在**（Maven Central 逐一查证）：`sa-token-spring-boot3-starter:1.38.0`、`mybatis-plus-spring-boot3-starter:3.5.7`、`knife4j-openapi3-jakarta-spring-boot-starter:4.5.0`、`langchain4j-spring-boot-starter:0.35.0`、`langchain4j-open-ai:0.35.0`、`langchain4j-chroma:0.35.0`、`langchain4j-document-parser-apache-tika:0.35.0` | 无需修改 |
 > | W4 | 核实通过 | **Sa-Token API 用法与官方文档一致**：`new SaInterceptor(handle -> {...})` lambda 构造（v1.31.0 引入、当前版本仍为此写法）、`SaRouter.match(path, r -> StpUtil.checkRole(...))`、`StpUtil.login/isLogin/checkLogin/getLoginIdAsLong/getTokenValue`、`StpInterface.getRoleList/getPermissionList(Object loginId, String loginType)` 签名——全部与 sa-token.cc 官方文档逐字一致 | 无需修改 |
 > | W5 | 核实通过 | **前端 npm 依赖均为真实存在的包且版本区间合理**：vue ^3.4.21 / pinia ^2.1.7 / element-plus ^2.6.1 / @microsoft/fetch-event-source ^2.0.1 / markdown-it ^14.1.0 / highlight.js ^11.9.0 / dompurify ^3.0.9 / axios ^1.6.8 / vite ^5.1.6；`fetchEventSource`、`DOMPurify.sanitize`、`new MarkdownIt()` 用法与各自官方文档一致 | 无需修改 |
+> | **W6** | **P0（前端直接建不起来）** | **C/D 两份 `package.json` 都缺 `@vitejs/plugin-vue`**——没有它 Vite 根本不处理 `.vue` 文件，`npm run build` 第一天就失败；同时缺 `vue-tsc`，"每次生成后跑类型检查"这条纪律无从执行；且全仓引用了 `vite.config.ts`（GLOSSARY 排障、跨域配置）却**从未给出该文件模板**，代理路径与后端端口靠 AI 自由发挥 | **已修**：C/D 两份 package.json 补齐 `@vitejs/plugin-vue` + `vue-tsc`（附"一个都不能少"警示与推荐 scripts）；`AGENT_INSTRUCTIONS` 新增 2.0 节给出 `vite.config.ts` 统一模板（`plugins:[vue()]`、`/api` 代理到 8080，三处锁死） |
+> | **W7** | P1 | **三条开工纪律只存在于对话、从未写进文档**——组员看不到聊天记录，"Day 1-2 先 Spike 不写业务 / 每次生成后必跑 `mvn clean compile` 与 `vue-tsc --noEmit` / AI 提的加功能一律拒绝"三条等于不存在。且 README 原"第 3 步"只写 `npm run build`，**vite build 不做类型检查**，模板级错误（调用未定义方法）查不出 | **已修**：README"组员操作指南"开头新增"开工前先背：三条保命纪律"（零经验大白话版，含命令表格、"AI 修 3 次还报错就发群里问"的止损规则、"build 查不出模板错误"的提示）；第 3 步同步改为先 `vue-tsc` 后 `build` |
 >
-> **结论**：v7.0 新发现 2 项（1 项 P0、1 项 P1），**已全部修复**；核实通过 3 项。
+> **结论**：v7.0 新发现 4 项（2 项 P0、2 项 P1），**已全部修复**；核实通过 3 项。
 >
 > **W1 的教训值得单独记录**：前 6 轮审查查的都是"文档自身对不对"，W1 暴露的是"**文档与现实世界对不对**"——`latest` 镜像在文档写作的当下也许能跑，但组员实际开工时（数周后）`latest` 已指向不兼容的新版本。**所有外部依赖（Maven 包、npm 包、Docker 镜像）都必须钉死版本号，这是零经验团队文档的第一原则。**
 >

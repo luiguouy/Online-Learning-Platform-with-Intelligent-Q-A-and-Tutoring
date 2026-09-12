@@ -38,11 +38,14 @@
   "devDependencies": {
     "@types/markdown-it": "^13.0.7",
     "@types/dompurify": "^3.0.5",
+    "@vitejs/plugin-vue": "^5.0.4",
     "typescript": "^5.2.2",
-    "vite": "^5.1.6"
+    "vite": "^5.1.6",
+    "vue-tsc": "^2.0.6"
   }
 }
 ```
+> ⚠️ **`@vitejs/plugin-vue` 与 `vue-tsc` 一个都不能少**：没有前者，Vite 根本不认识 `.vue` 文件，`npm run build` 直接失败；没有后者，README 纪律 2 要求的 `npx vue-tsc --noEmit` 类型检查跑不了（`npm run build` **查不出**模板里调用未定义方法这类错误）。建议 `scripts` 配为 `"dev": "vite"`、`"build": "vue-tsc --noEmit && vite build"`。
 
 ---
 
