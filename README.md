@@ -14,8 +14,7 @@
 | 4 | `COLLABORATION_WORKFLOW.md` | 全员必读 | **决策权 RACI、分支保护、PR/Review 门禁、CI、完成的定义（DoD）、风险登记册** |
 | 5 | `AGENT_INSTRUCTIONS.md` | 喂给 AI 的第一份文件 | Agent 禁令、application.yml 完整模板、线程池规范、冒烟验收清单 |
 | 6 | `MEMBER_X_DEV_GUIDE.md` | 各自认领 | 成员 A（RAG/SSE）、B（业务/DB）、C（学生前端）、D（教师前端） |
-| 7 | `EVALUATION_AND_DEMO.md` | 第 3 周起 / 答辩前 | 金标问答集、recall@K 评测脚本、演示兜底三层预案、限流与成本护栏 |
-| 8 | `ADVERSARIAL_AUDIT_REPORT.md` | 遇到问题时查 | 历史踩坑分析与答辩防御预案（缺陷已回写进上述文档，此处仅作背景） |
+| 7 | `ADVERSARIAL_AUDIT_REPORT.md` | 遇到问题时查 | 历史踩坑分析与答辩防御预案（缺陷已回写进上述文档，此处仅作背景） |
 
 ### 配套资产（需复制到代码仓生效）
 
@@ -62,13 +61,15 @@
 ### 第 4 步：提交代码
 按 `DEV_SPECIFICATION.md` 第一章执行：从 `dev` 分支拉 `feature/xxx` 分支，提交信息用 `feat(scope): 描述` 格式，发起 Pull Request 合并到 `dev`。**禁止把任何 API Key 写进代码或提交**（Key 放 `application-local.yml` 或环境变量，该文件已被 .gitignore 忽略）。
 
-## 三、最重要的 5 条铁律（Agent 最容易违反的）
+## 三、最重要的 6 条铁律（Agent 最容易违反的）
 
-1. **单体 Spring Boot 工程**，严禁微服务/拆分多工程（包名 `com.smartqa.platform`）。
-2. **SSE 协议只有 4 种事件**：`references` / `message` / `done` / `error`，全部 JSON 载荷，`done` 必含 `recordId`——格式以 `DEV_SPECIFICATION.md` 4.2 为唯一标准。
-3. **所有 REST 接口返回 `Result<T>` 统一包装**，严禁裸返回。
-4. **严禁硬编码密钥**；LLM Key、数据库密码一律环境变量注入。
-5. **前后端字段不许猜**：接口先由成员 B 出 Knife4j 文档，前端照文档调用；Token 存 `localStorage` 统一键名 `satoken`，请求头统一 `Authorization: Bearer <token>`。
+1. **只做 5 项核心功能，禁止自由发挥**：①课程资料构建 RAG 知识库、②学生提问智能答疑、③知识点解析、④问答记录、⑤教师后台管理（课件管理 + 问答记录查看），另加点赞/点踩与接口限流两项。
+   **严禁自行添加**统计图表、数据导出、人工纠偏、知识点自测题、多轮对话、语音输入等功能。**少做一个功能，比多做一个功能更有价值**（详见 `THREE_WEEK_PLAN.md` 第一节的功能范围表）。
+2. **单体 Spring Boot 工程**，严禁微服务/拆分多工程（包名 `com.smartqa.platform`）。
+3. **SSE 协议只有 4 种事件**：`references` / `message` / `done` / `error`，全部 JSON 载荷，`done` 必含 `recordId`——格式以 `DEV_SPECIFICATION.md` 4.2 为唯一标准。
+4. **所有 REST 接口返回 `Result<T>` 统一包装**，严禁裸返回。
+5. **严禁硬编码密钥**；LLM Key、数据库密码一律环境变量注入。
+6. **前后端字段不许猜**：接口先由成员 B 出 Knife4j 文档，前端照文档调用。Token 存 `localStorage` 统一键名 `satoken`，请求时**必须同时携带 `satoken` 与 `Authorization: Bearer <token>` 两个请求头**——只发后者会被判定未登录返回 401（见 `DEV_SPECIFICATION.md` 4.2）。
 
 ## 四、 当前项目阶段（3 周冲刺）
 

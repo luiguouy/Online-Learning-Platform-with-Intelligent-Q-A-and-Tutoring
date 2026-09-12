@@ -1,7 +1,7 @@
 # 成员 C 详细开发文档：学生端智能答疑前台工程师
 
 > **角色**：成员 C（学生前台核心开发工程师 · 前端工程师）  
-> **职责模块**：学生前台问答工作台、SSE 打字机流式通讯、Markdown 与代码高亮渲染、知识库溯源抽屉、知识点解析与自测题交互  
+> **职责模块**：学生前台问答工作台、SSE 打字机流式通讯、Markdown 与代码高亮渲染、知识库溯源抽屉、知识点解析展示  
 > **适用技术栈**：Vue 3 (Composition API) + Vite + TypeScript + Pinia + Element Plus + Tailwind CSS + Highlight.js + DOMPurify
 
 ---
@@ -14,7 +14,7 @@
 2. **SSE 流式通讯接收器**：封装 `fetch-event-source` 或标准 Fetch ReadableStream，精确监听解析 4 类后端事件（`references` -> `message` -> `done` -> `error`），实现零卡顿的流式打字机吐字效果。
 3. **Markdown 与公式代码高亮渲染**：渲染大模型返回的复杂排版，支持代码一键复制、表格展示、防 XSS 注入净化。
 4. **知识库出处溯源侧边抽屉 (Grounding Drawer)**：当回答中出现课件引用或者首包送达 `references` 时，以卡片形式展示命中课件文件名、相似度分数与原文片段，点击可展开高亮。
-5. **知识点深度解析与互动自测**：支持一键触发知识点精解，展示考点摘要与 3 道自测选择题，支持即时选中选项与正误判分。
+5. **知识点深度解析展示**：支持一键触发知识点精解，以 Markdown 展示核心概念定义与难点辨析（**不含自测题**，不做答题交互）。
 6. **交互反馈闭环**：实现每条回答底部的点赞、点踩、重新生成与复制回答功能。
 
 ---
@@ -57,7 +57,7 @@ src/
 │   ├── ChatBubble.vue         // 单条问答消息气泡 (支持学生提问与AI回复)
 │   ├── MarkdownViewer.vue     // Markdown与代码高亮清洗渲染器
 │   ├── GroundingDrawer.vue    // 右侧课件出处溯源抽屉
-│   └── QuizCard.vue           // 知识点自测题互动卡片
+│   └── KnowledgePanel.vue     // 知识点解析展示面板 (Markdown 渲染，只读)
 ├── stores/
 │   ├── chatStore.ts           // 当前会话、流式消息与参考出处Pinia状态
 │   └── courseStore.ts         // 当前选中课程状态
@@ -135,7 +135,7 @@ export class SseChatClient {
               callbacks.onToken(msg.data);
             }
           } else if (msg.event === 'done') {
-            // done 包携带 recordId/sessionId，必须保存 recordId 供点赞点踩与纠偏串联
+            // done 包携带 recordId/sessionId，必须保存 recordId 供点赞/点踩使用
             const doneInfo = JSON.parse(msg.data);
             callbacks.onDone(doneInfo);
           } else if (msg.event === 'error') {
@@ -269,8 +269,11 @@ defineExpose({ open });
    - 调试 `GET /api/qa/chat/stream`，保证打字机首字延迟（TTFT）在 1.5 秒以内。
    - 监听 `references` 事件，一旦到达立即激活聊天气泡上的“已溯源 3 处课件”徽章。
 2. **对接成员 B（后端业务）**：
-   - 调用 `POST /api/auth/login` 保存 Token 至 `localStorage`。
+   - 调用 `POST /api/auth/login` 保存 Token 至 `localStorage`（键名统一 `satoken`）。
+   - 课程切换调用 `GET /api/course/list`；历史会话调用 `GET /api/qa/sessions` 与 `GET /api/qa/records`。
    - 提问结束点击点赞/点踩，调用 `POST /api/qa/records/{id}/feedback`。
+3. **知识点解析**：
+   - 调用 `POST /api/knowledge/generate` 获取知识点精解内容，用 `MarkdownViewer` 渲染展示（**只读，不做答题交互**）。
 
 ### 5.2 成员 C 验收与交付物自测表
 - [ ] 流式打字过程中，滚动条能够自动跟随消息高度平滑下滚。

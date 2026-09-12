@@ -1,7 +1,7 @@
 # 成员 B 详细开发文档：后端业务与数据架构师
 
 > **角色**：成员 B（后端业务与数据架构师 · 后端工程师）  
-> **职责模块**：MySQL 数据库设计、MyBatis-Plus 持久层、Sa-Token 身份认证与 RBAC 权限、课程与课件业务 CRUD、问答持久化与反馈、学情统计 API、Knife4j 接口文档  
+> **职责模块**：MySQL 数据库设计、MyBatis-Plus 持久层、Sa-Token 身份认证与 RBAC 权限、课程与课件业务 CRUD、问答持久化与反馈、Knife4j 接口文档  
 > **适用技术栈**：Spring Boot 3.x + MySQL 8.0 + MyBatis-Plus + Sa-Token + Knife4j (OpenAPI 3)
 
 ---
@@ -14,7 +14,7 @@
 2. **安全鉴权与角色权限（RBAC）**：基于 Sa-Token 实现轻量级无状态 Token 机制，划分“学生（STUDENT）”与“教师（TEACHER）”双重身份体系，实现路由白名单与鉴权拦截。
 3. **课程与课件元数据管理**：课程的新增/修改/删除/查询；课件文件的本地/OSS 存储落盘，维护课件元数据与解析状态机（`PENDING` -> `PARSING` -> `CHUNKED` -> `FAILED`）。
 4. **问答持久化与评价闭环**：配合成员 A 的流式输出，异步记录每次问答的提问、回答、耗时及切块溯源；提供会话列表查询与学生点赞/点踩反馈接口。
-5. **学情统计与教师纠偏**：为成员 D 教师后台提供热点疑问聚合、分类统计接口；提供教师对 AI 错漏回答的人工纠偏保存接口。
+5. **问答记录查询**：为成员 D 教师后台提供学生提问明细的分页查询接口（支持按课程、时间、关键词筛选）。
 6. **接口契约先行**：集成 Knife4j，第一时间向成员 C 和成员 D 提供可在线调试的 OpenAPI 接口文档。
 
 ---
@@ -85,14 +85,11 @@ CREATE TABLE IF NOT EXISTS qa_record (
     question TEXT NOT NULL COMMENT '学生提问内容',
     answer LONGTEXT NOT NULL COMMENT 'AI生成的Markdown回答',
     grounding_references JSON NULL COMMENT '命中的课件出处快照 (JSON数组)',
-    is_corrected TINYINT NOT NULL DEFAULT 0 COMMENT '是否被教师纠偏: 0-否, 1-是',
-    corrected_answer LONGTEXT NULL COMMENT '教师人工修正后的标准答案',
-    teacher_comment VARCHAR(255) DEFAULT '' COMMENT '教师评语',
     feedback_rating TINYINT DEFAULT 0 COMMENT '学生打分: 1-点赞, -1-点踩, 0-未评',
     latency_ms INT DEFAULT 0 COMMENT '模型生成耗时(毫秒)',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_session_record (session_id),
-    INDEX idx_course_record (course_id, is_corrected)
+    INDEX idx_course_record (course_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='问答明细记录表';
 
 -- 6. 课程核心知识点与考点库表
@@ -102,7 +99,6 @@ CREATE TABLE IF NOT EXISTS course_knowledge_point (
     chapter_name VARCHAR(100) NOT NULL COMMENT '所属章节',
     title VARCHAR(150) NOT NULL COMMENT '知识点标题 (如: 页面置换算法LRU与FIFO对比)',
     summary TEXT NOT NULL COMMENT '核心精解摘要',
-    quiz_json JSON NULL COMMENT '配套自测选择题与解析(JSON)',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_course_point (course_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='课程知识点库表';
@@ -162,7 +158,8 @@ public class SaTokenConfigure implements WebMvcConfigurer {
             // 学生问答接口必须已登录
             SaRouter.match("/api/qa/**", r -> StpUtil.checkLogin());
         })).addPathPatterns("/api/**")
-           .excludePathPatterns("/api/auth/login", "/api/auth/register", "/doc.html", "/v3/api-docs/**");
+           // 只放行登录与接口文档；本期无注册接口，不要添加 /api/auth/register
+           .excludePathPatterns("/api/auth/login", "/doc.html", "/v3/api-docs/**");
     }
 }
 ```
@@ -337,9 +334,13 @@ public class TeacherDocumentController {
 }
 ```
 
-### 4.4 教师人工纠偏接口 (`TeacherQaController.java`)
+### 4.4 教师查看问答记录接口 (`TeacherQaController.java`)
+
+> **功能范围说明**：教师后台**只做问答记录的查看**，不提供修改 AI 回答（人工纠偏）功能。
+> 因此本 Controller 是**纯只读**的：只有 GET 查询，没有任何写接口。
+> 相应地，`qa_record` 表也不再需要 `is_corrected` / `corrected_answer` / `teacher_comment` 字段（DDL 已同步删除）。
 ```java
-@Tag(name = "教师端-问答审计与人工纠偏")
+@Tag(name = "教师端-问答记录查看")
 @RestController
 @RequestMapping("/api/teacher/qa")
 @RequiredArgsConstructor
@@ -347,20 +348,15 @@ public class TeacherQaController {
 
     private final QaRecordService qaRecordService;
 
-    @PostMapping("/correct")
-    @Operation(summary = "人工纠偏 AI 回答")
-    public Result<Boolean> correctQaRecord(@Valid @RequestBody QaCorrectionDTO dto) {
-        QaRecord record = qaRecordService.getById(dto.getRecordId());
-        if (record == null) {
-            throw new BusinessException("问答记录不存在");
-        }
-
-        record.setIsCorrected(1);
-        record.setCorrectedAnswer(dto.getCorrectedAnswer());
-        record.setTeacherComment(dto.getTeacherComment());
-        boolean success = qaRecordService.updateById(record);
-
-        return Result.success(success);
+    @GetMapping("/records")
+    @Operation(summary = "分页查询学生提问明细（只读）")
+    public Result<IPage<QaRecord>> listRecords(
+            @RequestParam Long courseId,
+            @RequestParam(defaultValue = "1") Integer pageNum,
+            @RequestParam(defaultValue = "10") Integer pageSize,
+            @RequestParam(required = false) String keyword) {
+        // 按课程 + 关键词（匹配 question 或 answer）分页查询，按提问时间倒序
+        return Result.success(qaRecordService.pageRecords(courseId, pageNum, pageSize, keyword));
     }
 }
 ```
@@ -377,8 +373,8 @@ public class TeacherQaController {
 | 会话明细 | GET | `/api/qa/records?sessionId={id}` | 返回该会话下的问答记录列表 | `QaSessionController` |
 | 点赞/点踩 | POST | `/api/qa/records/{id}/feedback` | body: `{"status": 1 / -1}`，写入 `feedback_rating` | `QaSessionController` |
 | 课件列表 | GET | `/api/teacher/docs/list?courseId={id}` | 教师端课件管理列表（**D 指南 4.1 直接调用此路径**） | `TeacherDocumentController` |
-| 学情统计 | GET | `/api/teacher/stats/overview` | 返回各课程问答量、高频提问等看板数据（**D 指南 4.3 图表依赖此接口**） | `TeacherStatsController` |
 | 索引重构 | POST | `/api/teacher/docs/{id}/reindex` | **Controller 由 B 提供**，内部调用 A 的 `removeDocumentVectors(id)` 再重新切块，状态回到 `PARSING`→`CHUNKED`（**必须异步执行**） | `TeacherDocumentController` |
+| 教师查看问答记录 | GET | `/api/teacher/qa/records?courseId=&pageNum=&pageSize=&keyword=` | 只读分页查询学生提问明细（实现见本章 4.4） | `TeacherQaController` |
 
 **实现要点**：
 - 全部返回 `Result<T>` 统一包装，路径与矩阵**逐字符一致**（前端已按此写死）。
@@ -389,15 +385,76 @@ public class TeacherQaController {
 
 ---
 
+### 4.6 答疑接口限流 (`QaRateLimitInterceptor.java`)
+
+**为什么必须做**：答疑接口每次调用都消耗大模型 Token（含 Embedding + 生成），公开演示或恶意重复提问会在几分钟内烧光额度。答辩时评委常问"别人一直刷你的接口怎么办"，有实现就能直接回答。
+
+**实现要求**：按用户维度做**固定窗口计数**，**零新增依赖**（只用 JDK 的 `ConcurrentHashMap` / `AtomicInteger`，不要引入 Guava）。
+
+```java
+@Component
+public class QaRateLimitInterceptor implements HandlerInterceptor {
+
+    /** 限流规则：每用户每 60 秒最多 20 次提问 */
+    private static final int MAX_REQUESTS = 20;
+    private static final long WINDOW_MILLIS = 60_000L;
+
+    private final Map<Long, AtomicInteger> counters = new ConcurrentHashMap<>();
+    private final Map<Long, Long> windowStart = new ConcurrentHashMap<>();
+
+    @Override
+    public boolean preHandle(HttpServletRequest request,
+                             HttpServletResponse response, Object handler) throws Exception {
+        // 关键：未登录时绝不能调用 getLoginIdAsLong()，否则抛 NotLoginException 变成 500
+        if (!StpUtil.isLogin()) {
+            response.setStatus(401);
+            response.setContentType("application/json;charset=UTF-8");
+            response.getWriter().write("{\"code\":401,\"message\":\"请先登录\"}");
+            return false;
+        }
+
+        Long userId = StpUtil.getLoginIdAsLong();
+        long now = System.currentTimeMillis();
+
+        windowStart.compute(userId, (id, start) -> {
+            if (start == null || now - start > WINDOW_MILLIS) {
+                counters.put(id, new AtomicInteger(0));
+                return now;
+            }
+            return start;
+        });
+
+        if (counters.get(userId).incrementAndGet() > MAX_REQUESTS) {
+            // 字段名必须是 message，与统一响应 Result.message 保持一致
+            response.setStatus(429);
+            response.setContentType("application/json;charset=UTF-8");
+            response.getWriter().write("{\"code\":429,\"message\":\"提问过于频繁，请稍后再试\"}");
+            return false;
+        }
+        return true;
+    }
+}
+```
+
+注册（**只拦截答疑与知识点接口**，不要全局拦截，否则会误伤登录与上传）。可直接合并进已有的 `SaTokenConfigure`：
+
+```java
+registry.addInterceptor(qaRateLimitInterceptor)
+        .addPathPatterns("/api/qa/chat/stream", "/api/knowledge/generate");
+```
+
+**验收标准**：连续快速提问第 21 次返回 429；未登录访问返回 401（不是 500）。
+
+---
+
 ## 五、 协同契约与交付物清单
 
 ### 5.1 对接配合要求
 1. **向成员 A 提供**：在 `qa_record` 表建立后，向成员 A 提供以下方法（`QaRecordService`）：
    - `saveStreamingRecord(courseId, sessionId, question, answer, references, latencyMs)`：流式传输完毕后保存提问与完整回复，**返回生成的 `recordId`**（成员 A 需在 SSE `done` 包中回传）。
-   - `findTopCorrected(courseId, question)`：检索该课程下已被教师纠偏（`is_corrected=1`）且与问题匹配的记录，供成员 A 实现"纠偏优先"双路检索（见审查报告缺陷 3）。
    - `createSessionLazy(courseId, question)`（`QaSessionService`）：`sessionId=0` 时懒创建会话，标题取问题前 15 字符。
-2. **向成员 C（学生端）提供**：`/api/course/list`、`/api/qa/sessions`、`/api/qa/records/{id}/feedback`。
-3. **向成员 D（教师端）提供**：`/api/teacher/docs/list`、`/api/teacher/stats/overview`、`/api/teacher/qa/correct`。
+2. **向成员 C（学生端）提供**：`/api/course/list`、`/api/qa/sessions`、`/api/qa/records`、`/api/qa/records/{id}/feedback`。
+3. **向成员 D（教师端）提供**：`/api/teacher/docs/list`、`/api/teacher/qa/records`（问答记录查看）、`/api/teacher/docs/{id}`（删除课件）。
 
 ### 5.2 成员 B 验收与交付物自测表
 - [ ] MySQL 脚本在本地顺利导入无报错，外键与索引创建完毕。

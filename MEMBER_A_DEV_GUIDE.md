@@ -15,9 +15,9 @@
 3. **向量化与存储（Embedding & Vector Store）**：使用通用文本向量模型（如 `text-embedding-v3` 或本地 BGE-small），元数据（courseId、docId、fileName）关联注入，存入 Chroma 或内存向量库。
 4. **多阶段检索与防幻觉调优**：按 `courseId` 租户级过滤，Cosine 相似度 `>= 0.70` 过滤，召回 Top-K（3~4），组装严谨防幻觉 System Prompt。
 5. **SSE 流式智能答疑接口**：对外提供 `GET /api/qa/chat/stream`，按照 4 阶段协议（`references` -> `message` -> `done` -> `error`）向前端打字机推流。
-6. **知识点自动精解与自测题生成**：提供 `POST /api/knowledge/generate` 接口。
+6. **知识点解析**：提供 `POST /api/knowledge/generate` 接口，返回结构化 Markdown 精解（核心概念定义 + 难点辨析），**不生成自测题**。
    - ⚠️ **必须加 Sa-Token 登录校验**（`StpUtil.checkLogin()`）。该接口单次调用消耗大量 Token，不鉴权会被恶意刷爆额度——这也是评委常问的"成本如何控制"。
-   - ⚠️ 同时必须做**按用户限流**（实现见 `EVALUATION_AND_DEMO.md` 4.2）。
+   - ⚠️ 同时必须做**按用户限流**（实现见 `MEMBER_B_DEV_GUIDE.md` 4.6）。
 
 ---
 
@@ -203,14 +203,13 @@ public interface PromptConstants {
         """;
 
     String KNOWLEDGE_SUMMARY_PROMPT = """
-        请针对课程《%s》中的核心知识点【%s】，生成深度解析与自测题目。
+        请针对课程《%s》中的核心知识点【%s】，生成深度解析。
         参考资料：
         %s
         
         请严格按如下 Markdown 结构输出：
         ## 一、核心概念定义与原理
         ## 二、核心难点深度辨析与常见陷阱
-        ## 三、3道课后复习自测题（含选择题、简答题及参考解析）
         """;
 }
 ```
@@ -221,11 +220,10 @@ public interface PromptConstants {
 **4 阶段 Event 规范**（字段格式以 `DEV_SPECIFICATION.md` 4.2 为唯一标准，所有 data 均为 JSON）：
 1. `event: references`：检索到的 Top-K 课件片段列表（出处高亮），字段：`docId`、`fileName`、`chunkIndex`、`score`、`snippet`。
 2. `event: message`：大模型流式吐字片段，载荷固定为 `{"delta": "..."}`。
-3. `event: done`：完成信号，**必须携带 `recordId` 与 `sessionId`**（供前端点赞/点踩与教师纠偏串联）。
+3. `event: done`：完成信号，**必须携带 `recordId` 与 `sessionId`**（供前端点赞/点踩使用）。
 4. `event: error`：异常信号，载荷为 `{"errorCode": ..., "message": "..."}`。
 
-**强制前置规则（审查报告补丁落地）**：
-- **纠偏优先**：向量检索前必须先查教师已纠偏记录（`qa_record` 表 `is_corrected=1`，精确匹配或相似度最高），命中则直接下发权威答案并在出处标注“任课教师权威修正”。
+**强制前置规则**：
 - **会话懒创建**：`sessionId` 为 `0`/空时后端自动插入 `qa_session`（标题取问题前 15 字符），并在 `done` 包回传真实 `sessionId`。
 - **专用线程池**：严禁 `CompletableFuture.runAsync` 使用默认公共线程池，必须注入 `sseExecutor`（见 AGENT_INSTRUCTIONS 1.3）。
 
@@ -239,7 +237,7 @@ public class SseStreamService {
     private final EmbeddingStore<TextSegment> embeddingStore;
     private final StreamingChatLanguageModel streamingChatModel;
     private final RagConfigProperties ragProperties;
-    private final QaRecordService qaRecordService;   // 成员 B 提供：含纠偏查询与流式结果落库
+    private final QaRecordService qaRecordService;   // 成员 B 提供：流式问答结果落库
     private final QaSessionService qaSessionService; // 成员 B 提供：会话懒创建
     @Resource(name = "sseExecutor")
     private Executor sseExecutor;                    // 专用 SSE 线程池，禁用默认公共池（@Resource 按名注入，避免 Lombok 构造器丢失 @Qualifier）
@@ -256,23 +254,6 @@ public class SseStreamService {
                 }
 
                 final Long finalSessionId = sessionId;
-
-                // 0.5 纠偏优先：先查教师人工修正的权威答案，命中直接下发（修复“改了白改”假闭环）
-                Optional<QaRecord> corrected = qaRecordService.findTopCorrected(courseId, question);
-                if (corrected.isPresent()) {
-                    QaRecord rec = corrected.get();
-                    emitter.send(SseEmitter.event().name("references").data(List.of(
-                            SseReferenceVO.builder().docId(0L).fileName("任课教师权威修正")
-                                    .chunkIndex(0).score(1.0).snippet(rec.getTeacherComment()).build())));
-                    emitter.send(SseEmitter.event().name("message").data(Map.of("delta", rec.getCorrectedAnswer())));
-                    emitter.send(SseEmitter.event().name("done").data(Map.of(
-                            "recordId", rec.getId(),
-                            "sessionId", finalSessionId,
-                            "finishReason", "stop",
-                            "totalTokens", 0)));
-                    emitter.complete();
-                    return;
-                }
 
                 // 1. 向量检索 (带 courseId 隔离与相似度阈值)
                 Embedding queryEmbedding = embeddingModel.embed(question).content();

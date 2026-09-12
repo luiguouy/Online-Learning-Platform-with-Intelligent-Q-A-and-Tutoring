@@ -245,7 +245,7 @@ const appendTokenWithThrottle = (token: string) => {
 ```
 
 ### 2.3 路由守卫与角色控制 (`src/router/index.ts`)
-- 未登录用户访问除 `/login`、`/register` 外的任何路径强制重定向到 `/login`。
+- 未登录用户访问除 `/login` 外的任何路径强制重定向到 `/login`。**本期没有注册功能**，账号由 `data.sql` 种子数据预置（`teacher01` / `student01`）。
 - 学生身份访问 `/teacher/**` 路由弹出 `ElMessage.error('无权访问教师管理后台')` 并重定向到学生端工作台 `/student/chat`。
 
 ---
@@ -279,4 +279,4 @@ ON DUPLICATE KEY UPDATE id=id;
 4. **鉴权闭环测试**：使用 `teacher01` / `123456` 登录成功，拿到 token 并成功访问 `/api/teacher/docs/list`。
 5. **文件上传测试**：上传一份带有文字的测试 PDF，控制台无 OOM 异常，文件保存在指定上传路径，状态变为 `CHUNKED`。
 6. **SSE 推流测试**：使用 Postman 或浏览器直接发起 GET 请求访问 `/api/qa/chat/stream?courseId=1&sessionId=0&question=测试`，依次收到 `references`、`message`、`done` 格式数据。
-7. **双路纠偏闭环测试**：调用纠偏接口后，再次提问相同问题，确认系统优先返回教师人工修正的答案。
+7. **问答记录闭环测试**：完成一次提问后，调用 `/api/teacher/qa/records?courseId=1&pageNum=1&pageSize=10`，确认能查到该条记录且包含参考出处；再调用点赞接口，确认 `feedback_rating` 正确更新。

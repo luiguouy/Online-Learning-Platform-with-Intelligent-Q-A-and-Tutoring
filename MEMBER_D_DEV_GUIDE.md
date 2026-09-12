@@ -1,20 +1,19 @@
-# 成员 D 详细开发文档：教师管理后台与学情可视化工程师
+# 成员 D 详细开发文档：教师管理后台工程师
 
-> **角色**：成员 D（教师后台与可视化工程师 · 前端工程师 · 答辩统筹）  
-> **职责模块**：教师端管理后台、课件拖拽上传与切块状态监控、问答明细审计与人工纠偏、ECharts 学情统计看板、答辩演练与工程文档统筹  
-> **适用技术栈**：Vue 3 + Vite + TypeScript + Element Plus + ECharts 5.x + Axios + Pinia
+> **角色**：成员 D（教师后台工程师 · 前端工程师 · 答辩统筹）  
+> **职责模块**：教师端管理后台、课件上传与切块状态监控、问答记录查看、答辩演练与工程文档统筹  
+> **适用技术栈**：Vue 3 + Vite + TypeScript + Element Plus + Axios + Pinia
 
 ---
 
 ## 一、 模块定位与工程职责边界
 
-成员 D 是教师角色的**“管理控制中心与学情洞察专家”**，同时兼任小组的**“交付与答辩质量总监”**：
+成员 D 是教师角色的**“管理控制中心”**，同时兼任小组的**“交付与答辩质量总监”**：
 
-1. **教师后台管理框架**：采用经典左侧菜单 + 顶部面包屑 + 主工作台布局，划分“课件知识库管理”、“问答记录与纠偏”、“学情数据大屏”三大子系统。
-2. **课件文件管理与分块状态监控**：实现拖拽上传课件（PDF/MD/TXT），支持限制大小（<=50MB），实时轮询或展示切块状态机（排队中 -> 切片中 -> 已就绪 -> 失败），支持在线查看切块数量与片段明细。
-3. **问答记录审计与人工干预（纠偏）**：提供多维度问答审计表格，支持筛选“被学生点踩（负反馈）”的回答；内置人工纠偏弹窗，教师可直接覆写 AI 的不严谨回答并录入修正答案。
-4. **学情看板与数据可视化 (ECharts)**：开发直观的可视化看板，包含：近 7 天学生提问趋势折线图、高频提问热点词云、课程知识点掌握率雷达图。
-5. **项目验收与答辩物料统筹**：牵头整合团队的最终代码仓库、编撰系统使用说明书、准备答辩 PPT 与现场演示脚本。
+1. **教师后台管理框架**：采用经典左侧菜单 + 顶部面包屑 + 主工作台布局，只有两个子系统：**“课件知识库管理”**与**“问答记录查看”**。
+2. **课件文件管理与分块状态监控**：实现拖拽上传课件（PDF/MD/TXT），限制大小（<=50MB），轮询展示切块状态机（排队中 -> 切片中 -> 已就绪 -> 失败），支持在线查看切块数量。
+3. **问答记录查看**：提供问答记录表格，支持按课程、时间、关键词筛选，可查看单条问答的完整内容（提问、AI 回答、参考出处）。**该模块只读，不提供任何修改 AI 回答的功能。**
+4. **项目验收与答辩物料统筹**：牵头整合团队的最终代码仓库、编撰系统使用说明书、准备答辩 PPT 与现场演示脚本。
 
 ---
 
@@ -27,8 +26,6 @@
     "vue-router": "^4.3.0",
     "element-plus": "^2.6.1",
     "@element-plus/icons-vue": "^2.3.1",
-    "echarts": "^5.5.0",
-    "echarts-wordcloud": "^2.1.0",
     "axios": "^1.6.8"
   },
   "devDependencies": {
@@ -38,8 +35,7 @@
 }
 ```
 
-> ⚠️ **不要安装 `@types/echarts`**：`echarts` 5.x 已自带完整 TypeScript 类型定义，再装 4.x 时代的 `@types/echarts` 会造成类型冲突（`echarts.init()` 等签名不匹配），`vue-tsc --noEmit` 直接报红、CI 卡死。
-> 💡 `echarts-wordcloud` 仅在画词云时才用到；3 周工期下若只做折线图 + 饼图，可删掉此依赖减少安装体积。
+> **本项目不使用 ECharts**：学情可视化看板已按需求裁剪（不属于核心功能），**不要安装任何图表库**，也不要引入 `echarts` / `echarts-wordcloud` / `@types/echarts`。
 
 ---
 
@@ -49,12 +45,9 @@
 src/views/teacher/
 ├── TeacherLayout.vue          // 教师端通用导航与面包屑外框
 ├── CourseDocManage.vue        // 课件上传、分块切片状态管理
-├── QaAuditCorrection.vue      // 问答历史审计与人工纠偏工作台
-├── AnalyticsDashboard.vue     // ECharts 学情分析数据大屏
+├── QaRecordList.vue           // 问答记录查看（只读）
 └── components/
-    ├── DocUploadModal.vue     // 课件拖拽上传弹窗
-    ├── CorrectionDialog.vue   // 教师人工纠偏弹窗
-    └── TrendChart.vue         // 7日提问趋势折线图组件
+    └── DocUploadModal.vue     // 课件拖拽上传弹窗
 ```
 
 ---
@@ -163,158 +156,172 @@ onMounted(fetchDocs);
 </script>
 ```
 
-### 4.2 问答记录审计与人工纠偏弹窗 (`CorrectionDialog.vue`)
+---
+
+### 4.2 问答记录查看 (`QaRecordList.vue`)
+
+**功能范围（重要）**：教师按课程查看学生提问明细，支持关键词筛选、分页，并可展开查看该条问答命中的课件出处。
+**本页是只读的**——不提供修改 AI 回答的功能（人工纠偏不在本期需求范围内，数据库也无对应字段）。
+
 ```vue
 <template>
-  <el-dialog
-    v-model="visible"
-    title="问答记录人工纠偏 (教师覆盖标准答案)"
-    width="680px"
-  >
-    <div v-if="record" class="space-y-4 text-xs">
-      <div class="bg-slate-50 p-3 rounded border border-slate-200">
-        <span class="font-bold text-slate-700 block mb-1">学生提问：</span>
-        <p class="text-slate-900">{{ record.question }}</p>
-      </div>
-
-      <div class="bg-amber-50/50 p-3 rounded border border-amber-200">
-        <span class="font-bold text-amber-800 block mb-1">AI 原始回答 (待纠偏)：</span>
-        <p class="text-slate-700 max-h-32 overflow-y-auto whitespace-pre-wrap">{{ record.answer }}</p>
-      </div>
-
-      <div class="space-y-2">
-        <label class="font-bold text-slate-800 block">教师标准修正答案 (Markdown 格式)：</label>
-        <el-input
-          v-model="form.correctedAnswer"
-          type="textarea"
-          :rows="5"
-          placeholder="请输入修正后的严谨答案，保存后学生端将优先展示此内容..."
-        />
-      </div>
-
-      <div class="space-y-1">
-        <label class="font-semibold text-slate-700 block">教师指导评语：</label>
-        <el-input v-model="form.teacherComment" placeholder="如：已核实课件第4章第2节定义，原回答混淆了物理地址与虚拟地址" />
-      </div>
+  <div class="p-4">
+    <!-- 筛选区 -->
+    <div class="flex items-center gap-3 mb-4">
+      <el-select v-model="courseId" placeholder="选择课程" style="width: 220px" @change="search">
+        <el-option v-for="c in courses" :key="c.id" :label="c.courseName" :value="c.id" />
+      </el-select>
+      <el-input
+        v-model="keyword"
+        placeholder="按提问或回答关键词搜索"
+        style="width: 280px"
+        clearable
+        @keyup.enter="search"
+      />
+      <el-button type="primary" @click="search">查询</el-button>
     </div>
 
-    <template #footer>
-      <el-button @click="visible = false">取消</el-button>
-      <el-button type="primary" :loading="submitting" @click="submitCorrection">
-        保存并更新知识库
-      </el-button>
-    </template>
-  </el-dialog>
-</template>
+    <!-- 记录表格 -->
+    <el-table :data="records" border stripe v-loading="loading">
+      <el-table-column prop="id" label="ID" width="80" />
+      <el-table-column prop="question" label="学生提问" min-width="200" show-overflow-tooltip />
+      <el-table-column label="AI 回答" min-width="260">
+        <template #default="{ row }">
+          <span class="text-slate-600">{{ row.answer }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="参考出处" width="120">
+        <template #default="{ row }">
+          <el-button link type="primary" @click="showRefs(row)">
+            查看 ({{ parseRefs(row.groundingReferences).length }})
+          </el-button>
+        </template>
+      </el-table-column>
+      <el-table-column prop="createdAt" label="提问时间" width="170" />
+      <el-table-column label="学生反馈" width="100">
+        <template #default="{ row }">
+          <el-tag v-if="row.feedbackRating === 1" type="success" size="small">点赞</el-tag>
+          <el-tag v-else-if="row.feedbackRating === -1" type="danger" size="small">点踩</el-tag>
+          <span v-else class="text-slate-400">—</span>
+        </template>
+      </el-table-column>
+    </el-table>
 
-<script setup lang="ts">
-import { ref, reactive } from 'vue';
-import { ElMessage } from 'element-plus';
-import axios from 'axios';
+    <el-pagination
+      class="mt-4 justify-end"
+      layout="total, prev, pager, next"
+      :total="total"
+      :page-size="pageSize"
+      v-model:current-page="pageNum"
+      @current-change="fetchRecords"
+    />
 
-const visible = ref(false);
-const submitting = ref(false);
-const record = ref<any>(null);
-
-const form = reactive({
-  correctedAnswer: '',
-  teacherComment: ''
-});
-
-const emit = defineEmits(['saved']);
-
-const open = (row: any) => {
-  record.value = row;
-  form.correctedAnswer = row.correctedAnswer || row.answer;
-  form.teacherComment = row.teacherComment || '';
-  visible.value = true;
-};
-
-const submitCorrection = async () => {
-  if (!form.correctedAnswer.trim()) {
-    return ElMessage.warning('修正答案不能为空');
-  }
-  submitting.value = true;
-  try {
-    const res = await axios.post('/api/teacher/qa/correct', {
-      recordId: record.value.id,
-      correctedAnswer: form.correctedAnswer,
-      teacherComment: form.teacherComment
-    });
-    if (res.data.code === 200) {
-      ElMessage.success('人工纠偏成功！');
-      visible.value = false;
-      emit('saved');
-    }
-  } finally {
-    submitting.value = false;
-  }
-};
-
-defineExpose({ open });
-</script>
-```
-
-### 4.3 ECharts 学情可视化看板 (`AnalyticsDashboard.vue`)
-```vue
-<template>
-  <div class="p-6 space-y-6">
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
-      <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs">
-        <span class="text-xs text-slate-500 font-medium">累计学生提问总数</span>
-        <div class="text-2xl font-bold text-slate-900 mt-2">1,248 <span class="text-xs text-emerald-600 font-normal">次</span></div>
+    <!-- 参考出处抽屉（只读展示） -->
+    <el-drawer v-model="refsVisible" title="参考出处" size="420px">
+      <div v-for="(r, i) in currentRefs" :key="i" class="mb-3 p-3 bg-slate-50 rounded text-xs">
+        <div class="font-bold text-slate-800">{{ r.fileName }} · 第 {{ r.chunkIndex }} 段</div>
+        <div class="text-slate-500 mt-1">相关度 {{ r.score }}</div>
+        <p class="text-slate-700 mt-2">{{ r.snippet }}</p>
       </div>
-      <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs">
-        <span class="text-xs text-slate-500 font-medium">RAG 知识库课件切块数</span>
-        <div class="text-2xl font-bold text-indigo-600 mt-2">342 <span class="text-xs text-slate-500 font-normal">个片段</span></div>
-      </div>
-      <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs">
-        <span class="text-xs text-slate-500 font-medium">教师人工纠偏率</span>
-        <div class="text-2xl font-bold text-amber-600 mt-2">3.2% <span class="text-xs text-slate-400 font-normal">(40 条纠偏)</span></div>
-      </div>
-    </div>
-
-    <!-- 趋势图 -->
-    <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs">
-      <h3 class="text-sm font-bold text-slate-800 mb-4">近 7 天学生提问频次与活跃趋势</h3>
-      <div ref="chartRef" class="w-full h-72"></div>
-    </div>
+    </el-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import * as echarts from 'echarts';
+// 必须用统一封装实例，它会自动带上 satoken 与 Authorization 双请求头；直接用裸 axios 会 401
+import request from '@/utils/request';
+import { ElMessage } from 'element-plus';
 
-const chartRef = ref<HTMLDivElement | null>(null);
+interface SseReference {
+  docId: number;
+  fileName: string;
+  chunkIndex: number;
+  score: number;
+  snippet: string;
+}
 
-onMounted(() => {
-  if (chartRef.value) {
-    const chart = echarts.init(chartRef.value);
-    chart.setOption({
-      tooltip: { trigger: 'axis' },
-      grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-      xAxis: {
-        type: 'category',
-        boundaryGap: false,
-        data: ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
-      },
-      yAxis: { type: 'value', name: '提问人次' },
-      series: [
-        {
-          name: '智能答疑调用',
-          type: 'line',
-          smooth: true,
-          data: [120, 182, 191, 234, 290, 330, 310],
-          areaStyle: { color: 'rgba(79, 70, 229, 0.15)' },
-          itemStyle: { color: '#4F46E5' }
-        }
-      ]
-    });
+interface QaRecordRow {
+  id: number;
+  question: string;
+  answer: string;
+  groundingReferences?: SseReference[] | string;  // 可能是 JSON 字符串，统一解析
+  feedbackRating?: number;
+  createdAt: string;
+}
+
+const courses = ref<any[]>([]);
+const courseId = ref<number>();
+const keyword = ref('');
+const records = ref<QaRecordRow[]>([]);
+const total = ref(0);
+const pageNum = ref(1);
+const pageSize = ref(10);
+const loading = ref(false);
+
+const refsVisible = ref(false);
+const currentRefs = ref<SseReference[]>([]);
+
+/** groundingReferences 可能是 JSON 字符串（数据库 JSON 字段），统一解析为数组 */
+const parseRefs = (raw: QaRecordRow['groundingReferences']): SseReference[] => {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return [];
   }
-});
+};
+
+const showRefs = (row: QaRecordRow) => {
+  currentRefs.value = parseRefs(row.groundingReferences);
+  refsVisible.value = true;
+};
+
+const fetchCourses = async () => {
+  const res = await request.get('/course/list');
+  courses.value = res as any;
+  if (courses.value.length) {
+    courseId.value = courses.value[0].id;
+    fetchRecords();
+  }
+};
+
+const fetchRecords = async () => {
+  if (!courseId.value) return;
+  loading.value = true;
+  try {
+    const res: any = await request.get('/teacher/qa/records', {
+      params: {
+        courseId: courseId.value,
+        pageNum: pageNum.value,
+        pageSize: pageSize.value,
+        keyword: keyword.value,
+      },
+    });
+    records.value = res.records;
+    total.value = res.total;
+  } catch {
+    ElMessage.error('问答记录加载失败');
+  } finally {
+    loading.value = false;
+  }
+};
+
+const search = () => {
+  pageNum.value = 1;
+  fetchRecords();
+};
+
+onMounted(fetchCourses);
 </script>
 ```
+
+**验收标准**：
+- 切换课程后表格内容随之变化，不串课；
+- 关键词能同时匹配到提问内容与回答内容；
+- "参考出处"能展开看到课件名、分块序号与相关度；
+- 学生点赞/点踩后，本页"学生反馈"列显示对应标签。
 
 ---
 
@@ -322,16 +329,18 @@ onMounted(() => {
 
 ### 5.1 对接配合要求
 1. **对接成员 B（后端业务）**：
-   - 联调 `/api/teacher/docs/upload` 课件上传与列表分页接口。
-   - 联调 `/api/teacher/qa/correct` 人工纠偏接口。
+   - 联调 `/api/teacher/docs/upload`（上传）、`/api/teacher/docs/list`（列表）、`/api/teacher/docs/{id}`（删除）、`/api/teacher/docs/{id}/reindex`（重建索引）。
+   - 联调 `/api/teacher/qa/records` 问答记录查询接口（问答记录模块唯一的数据来源）。
 2. **对接成员 A（AI 算法）**：
-   - 获取课件切块后的分块详情数据，在抽屉中展示切块字符长度与相似度分布。
+   - 课件上传后由 A 的切块服务异步处理，D 端只负责轮询状态机（`PENDING`→`PARSING`→`CHUNKED`→`FAILED`），**不需要切块内部细节**。
 3. **牵头项目总结与答辩物料**：
    - 汇总 A、B、C、D 四人的核心成果，编写《课程设计总结报告》。
    - 制作包含架构图、RAG 核心流程图、前后端功能演练截图的答辩 PPT。
 
 ### 5.2 成员 D 验收与交付物自测表
-- [ ] 拖拽上传 PDF 课件后，状态从“切片中”平滑过渡到“已就绪”，无需手动频繁刷新。
-- [ ] 人工纠偏提交成功后，列表立即反映纠偏状态，且重新查询该条问答已显示最新修正文本。
-- [ ] ECharts 图表在窗口大小改变（resize）时能够自适应缩放，无布局错乱。
-- [ ] 答辩材料齐全：PPT 框架清晰、演示录屏无死机卡顿、4人分工贡献一目了然。
+- [ ] 拖拽上传 PDF 课件后，状态从"切片中"平滑过渡到"已就绪"，无需手动频繁刷新。
+- [ ] 课件删除后列表不再显示该课件，且学生端检索不到它的内容。
+- [ ] 问答记录页能按课程筛选、按关键词搜索、翻页，并能展开查看参考出处。
+- [ ] 问答记录页**没有任何修改 AI 回答的入口**（本模块为只读，越权功能不得出现）。
+- [ ] 全链路端到端测试完成，输出缺陷清单并推动修复闭环。
+- [ ] 答辩材料齐全：PPT 框架清晰、4 人分工贡献一目了然。

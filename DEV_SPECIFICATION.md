@@ -18,7 +18,7 @@
   - 成员 A（AI / RAG）：`feature/rag-engine`、`feature/sse-stream`
   - 成员 B（后端业务）：`feature/user-auth`、`feature/course-crud`
   - 成员 C（学生前端）：`feature/student-chat`、`feature/markdown-viewer`
-  - 成员 D（教师前端）：`feature/teacher-admin`、`feature/echarts-board`
+  - 成员 D（教师前端）：`feature/teacher-admin`、`feature/qa-record-list`
 - **`fix/xxx` 分支**：联调或测试期间的 Bug 修复分支。
 
 ### 1.2 Git 提交信息规范 (Conventional Commits)
@@ -112,8 +112,8 @@ src/
 ├── types/           // 全局 TypeScript 类型声明
 ├── utils/           // 工具函数 (SSE请求封装, 日期格式化, 复制文本)
 └── views/           // 页面组件
-    ├── auth/        // 登录/注册页
-    ├── student/     // 学生前台问答工作台、知识点自测页
+    ├── auth/        // 登录页（本期不实现注册）
+    ├── student/     // 学生前台问答工作台、知识点解析展示
     └── teacher/     // 教师后台课件管理、问答审计页
 ```
 
@@ -183,7 +183,7 @@ Connection: keep-alive
    data: {"delta": "在操作系统中，"}
    data: {"delta": "分页式存储管理是将虚拟地址空间..."}
    ```
-3. **`event: done`**（结束标记包，**必须携带 recordId** 供前端点赞/点踩与教师纠偏串联）：
+3. **`event: done`**（结束标记包，**必须携带 recordId**，供前端点赞/点踩与问答记录查询使用）：
    ```json
    data: {"recordId": 1024, "sessionId": 7, "finishReason": "stop", "totalTokens": 328}
    ```
@@ -237,7 +237,7 @@ Connection: keep-alive
   ```
 - **模型参数调优**：
   - 智能答疑场景：设置 `temperature = 0.2`，降低发散性，确保回答严谨基于课件。
-  - 知识点精解与自测题场景：设置 `temperature = 0.6`，保证题目生成的多样性。
+  - 知识点精解场景：设置 `temperature = 0.6`，让讲解表述更自然。
 
 ---
 
