@@ -1,5 +1,4 @@
-# 团队协作与工程治理规范（企业级落地版 v1.0）
-
+# 团队协作与工程治理规范
 > **本文件定位**：`DEV_SPECIFICATION.md` 管"代码怎么写"，本文件管"**人怎么一起干活**"。两者冲突时以 `DEV_SPECIFICATION.md` 第四章接口契约为准。
 > **落地原则（轻量优先）**：只用 **GitHub 原生能力**（Issues / Pull Requests / Actions / Projects）+ 一个群，不引入 Jira、Confluence、飞书多维表格等重型工具。4 人团队引入重工具的维护成本高于收益。
 > **读者**：全员必读（尤其是组长与每次发起 PR 的人）。
