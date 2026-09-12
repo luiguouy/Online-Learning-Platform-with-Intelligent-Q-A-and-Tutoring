@@ -4,7 +4,27 @@
 > **审计背景**：针对面向 AI Agent 自动化生成代码与 4 人本科生团队全栈交付方案的全面红蓝对抗性审查。  
 > **审计基准**：4 人协同零摩擦、接口零猜测、RAG 核心闭环零死锁、答辩演示零翻车。
 
-> **🔴 v6.0 复审（外部第三方 API 查证）—— 最新一轮，请先读本节**
+> **🔴 v7.0 复审（依赖版本存在性与服务端-客户端协议配对查证）—— 最新一轮，请先读本节**
+>
+> **触发**：v6.0 查证了 API 用法，但没查**依赖版本是否真实存在**、以及**客户端库与服务端软件的协议版本是否配对**。后者是本项目的隐藏炸弹。
+>
+> ### v7.0 发现与处理
+>
+> | ID | 级别 | 问题 | 处理 |
+> |----|------|------|------|
+> | **W1** | **P0（启动即废，比之前的都隐蔽）** | **`chromadb/chroma:latest` 与 `langchain4j-chroma:0.35.0` 协议不配对，必然连不通**。查证 LangChain4j 官方文档：0.35.0 的 `ChromaEmbeddingStore` **只支持 Chroma API V1**（V2 支持是 1.7.0-beta13 之后才加的 `apiVersion()` builder 方法，0.35.0 里没有）；而 Chroma 服务端 **0.7.0 起只保留 API V2**（2025-04 的 1.0 为纯 V2）——文档原写 `chromadb/chroma:latest`，拉下来的必为 ≥1.0，客户端调 `/api/v1/**` 全部 404。**这是任何文档内部一致性审查都查不出来的问题** | **已修**：`DEV_SPECIFICATION` 6.1 锁定 `chromadb/chroma:0.5.23`（最后一个 0.5.x，V1 完整可用，已核实 DockerHub 存在该 tag），附启动命令与 `curl /api/v1/heartbeat` 验证步骤；`GLOSSARY` 排障表新增"容器在跑但调 404"条目指向版本锁定 |
+> | **W2** | P1 | **Spring Boot 版本从未锁定**。文档只写"Spring Boot 3.x"，AI 建工程时会选当下最新（如 3.5.x），而本项目全部依赖（LangChain4j 0.35.0 / Sa-Token 1.38.0 / MyBatis-Plus 3.5.7 / Knife4j 4.5.0）都发布于 2024 上半年、在 3.2/3.3 时代验证过——撞 3.4+ 的 API 移除零经验团队无法排查 | **已修**：三处同步锁定 `spring-boot-starter-parent` = **3.3.5**（`AGENT_INSTRUCTIONS` 零章、`MEMBER_A` 2.1、`DEV_SPECIFICATION` 6.1），并写明"用 Initializr 建工程后必须把版本改回 3.3.5" |
+> | W3 | 核实通过 | **7 个后端 Maven 依赖版本全部真实存在**（Maven Central 逐一查证）：`sa-token-spring-boot3-starter:1.38.0`、`mybatis-plus-spring-boot3-starter:3.5.7`、`knife4j-openapi3-jakarta-spring-boot-starter:4.5.0`、`langchain4j-spring-boot-starter:0.35.0`、`langchain4j-open-ai:0.35.0`、`langchain4j-chroma:0.35.0`、`langchain4j-document-parser-apache-tika:0.35.0` | 无需修改 |
+> | W4 | 核实通过 | **Sa-Token API 用法与官方文档一致**：`new SaInterceptor(handle -> {...})` lambda 构造（v1.31.0 引入、当前版本仍为此写法）、`SaRouter.match(path, r -> StpUtil.checkRole(...))`、`StpUtil.login/isLogin/checkLogin/getLoginIdAsLong/getTokenValue`、`StpInterface.getRoleList/getPermissionList(Object loginId, String loginType)` 签名——全部与 sa-token.cc 官方文档逐字一致 | 无需修改 |
+> | W5 | 核实通过 | **前端 npm 依赖均为真实存在的包且版本区间合理**：vue ^3.4.21 / pinia ^2.1.7 / element-plus ^2.6.1 / @microsoft/fetch-event-source ^2.0.1 / markdown-it ^14.1.0 / highlight.js ^11.9.0 / dompurify ^3.0.9 / axios ^1.6.8 / vite ^5.1.6；`fetchEventSource`、`DOMPurify.sanitize`、`new MarkdownIt()` 用法与各自官方文档一致 | 无需修改 |
+>
+> **结论**：v7.0 新发现 2 项（1 项 P0、1 项 P1），**已全部修复**；核实通过 3 项。
+>
+> **W1 的教训值得单独记录**：前 6 轮审查查的都是"文档自身对不对"，W1 暴露的是"**文档与现实世界对不对**"——`latest` 镜像在文档写作的当下也许能跑，但组员实际开工时（数周后）`latest` 已指向不兼容的新版本。**所有外部依赖（Maven 包、npm 包、Docker 镜像）都必须钉死版本号，这是零经验团队文档的第一原则。**
+>
+> ---
+
+> **🔴 v6.0 复审（外部第三方 API 查证）**
 >
 > **触发**：用户连问两次"文档确定没问题吗？"——把前 5 轮都没覆盖的盲区暴露出来：**文档里大量代码依赖第三方 API（LangChain4j 0.35、Sa-Token、MyBatis-Plus），但前 5 轮的"核实"全部停留在文档内部一致性，从未对照过官方文档查证 API 名字、参数、行为**。如果 API 写错，组员的 AI 会照错生成，零经验完全发现不了。
 >
@@ -38,7 +58,7 @@
 > ### 仍然存在的盲区（无法消除，只能靠组员执行验证）
 >
 > - **Spring Boot 3.x 与 Sa-Token 1.37+ 的小版本兼容性**（如 1.37.0 vs 1.38.0 是否有 breaking change）——文档中所有 API 都按"Sa-Token 1.37+ 接口签名稳定"前提写。如未来小版本有破坏性变更，需另行更新。
-> - **LangChain4j 0.35 与 chroma 客户端 jar 的网络层兼容性**（Chroma HTTP API 路径在不同版本是否一致）——A 的 Agent 需在 Spike 阶段实际启动 Chroma 容器验证。
+> - ~~**LangChain4j 0.35 与 chroma 客户端 jar 的网络层兼容性**~~ **【v7.0 已闭环】**：查证确认 0.35.0 客户端只支持 Chroma API V1，已通过锁定服务端镜像 `chromadb/chroma:0.5.23` 解决（见 v7.0 W1）。Spike 阶段仍需实际启动容器验证一次。
 > - **Element Plus 2.x 在 Vue 3.5 下的组件 API 稳定性**——`el-upload`、`el-table` 的 slot/事件签名在不同小版本偶有调整。
 >
 > 这三项**任何一处出错仍会导致项目跑不起来**，但**只能通过实际跑一次验证**，无法在文档里 100% 闭环。建议组员开工第一天就按 Spike 流程跑通最小闭环（详见 `AGENT_INSTRUCTIONS.md` 三、），跑不通立刻反馈。

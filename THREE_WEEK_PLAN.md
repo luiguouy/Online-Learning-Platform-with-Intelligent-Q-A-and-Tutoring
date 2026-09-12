@@ -79,7 +79,7 @@ Day1 环境就绪
 
 | # | 任务 | 交付物 | 验收标准（可验证） | 截止 |
 | :--- | :--- | :--- | :--- | :--- |
-| A1.1 | **Chroma 元数据过滤 Spike**（最高优先级） | 最小 Demo + 结论 | `IsEqualTo("courseId","1")` 检索**只返回该课程结果**；`removeAll(filter)` 能删干净。**不通过立即切内置向量存储退路并通知全员** | Day 2 |
+| A1.1 | **Chroma 元数据过滤 Spike**（最高优先级） | 最小 Demo + 结论 | **镜像必须用 `chromadb/chroma:0.5.23`**（`latest` ≥1.0 只有 API V2，`langchain4j-chroma:0.35.0` 只认 V1，连不上，见 `DEV_SPECIFICATION.md` 6.1）；`IsEqualTo("courseId","1")` 检索**只返回该课程结果**；`removeAll(filter)` 能删干净。**不通过立即切内置向量存储退路并通知全员** | Day 2 |
 | A1.2 | 大模型连通验证 | 一次成功的流式输出 | 用 `AGENT_INSTRUCTIONS.md` 1.2 的 yml 模板跑通并截图 | Day 2 |
 | A1.3 | Spring Boot 工程骨架 | 可启动的空工程 | `mvn spring-boot:run` 启动成功，Knife4j 能打开 | Day 3 |
 | A1.4 | 文档解析 + 切块 | `DocumentIngestionService` | 传入一个 PDF，切出 N 个 400 字段落并打印数量 | Day 5 |

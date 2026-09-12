@@ -248,10 +248,14 @@ Authorization: Bearer <token>
 ### 6.1 本地开发环境统一
 为避免环境版本导致的玄学 Bug，团队环境基线统一定义如下：
 - **JDK**：OpenJDK / Oracle JDK 17 (LTS)
+- **Spring Boot**：**锁定 `3.3.5`**（`spring-boot-starter-parent` 版本，v7.0 锁定——其余依赖均为 2024 上半年发布，在 3.2/3.3 时代验证过；用 Initializr 建工程后必须把版本改回 3.3.5）
 - **构建工具**：Maven 3.8+
 - **Node.js**：Node.js 18.x 或 20.x (LTS) + pnpm / npm 9+
 - **MySQL**：MySQL 8.0+（编码务必设为 `utf8mb4`）
-- **向量库**：Chroma 0.5+ (Docker: `chromadb/chroma:latest`)
+- **向量库**：Chroma **锁定 `0.5.23`**（Docker: `chromadb/chroma:0.5.23`）
+  - ⚠️ **严禁用 `latest`**：`langchain4j-chroma:0.35.0` 的客户端**只支持 Chroma API V1**；Chroma 服务端 **0.7.0 起只保留 API V2**（2025-04 发布的 1.0 更是纯 V2）——`latest` 必然连不上。0.5.23 是最后一个 0.5.x，V1 完整可用（v7.0 查证 LangChain4j 官方文档与 Chroma release 记录）。
+  - 启动命令：`docker run -d --name chroma -p 8000:8000 -v chroma-data:/chroma chromadb/chroma:0.5.23`
+  - 验证：`curl http://localhost:8000/api/v1/heartbeat` 返回 `{"nanosecond heartbeat": ...}` 即正常。
 
 ### 6.2 联调与代码合并纪律
 1. **先拉取后提交**：每天开始写代码前，先 `git pull origin dev`；提交 PR 前，先在本地 rebase 或 merge 最新的 `dev` 并编译通过。

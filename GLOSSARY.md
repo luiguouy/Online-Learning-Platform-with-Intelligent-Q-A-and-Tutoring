@@ -138,6 +138,7 @@ CI 就是**一个所有人都一样的第三方电脑**，每次提交都自动�
 | SSE 收到乱码/解析失败 | 前端按裸文本解析，但后端发的是 JSON | `message` 事件要 `JSON.parse(data).delta`（见 C 指南） |
 | `NoSuchBeanDefinition: sseExecutor` | 线程池 Bean 没配置 | 见 `AGENT_INSTRUCTIONS.md` 1.3 |
 | Chroma 连不上 / `Connection refused` | Docker 容器没启动 | `docker ps` 检查，`docker restart chroma` |
+| Chroma 调用报 404 / `Not Found`（容器明明在跑） | **镜像版本错了**：用了 `latest`（≥0.7 只支持 API V2），而 `langchain4j-chroma:0.35.0` 只认 V1 | 必须 `chromadb/chroma:0.5.23`（见 `DEV_SPECIFICATION.md` 6.1）；`docker rm -f chroma` 后用锁定版本重建 |
 | 检索结果总是空 / 不相关 | 课件还没切块完成；或 `courseId` 过滤写错 | 确认课件状态是 `CHUNKED`；检查 `IsEqualTo("courseId", ...)` |
 | `mvn compile` 失败：依赖下载不了 | 网络或 Maven 镜像问题 | 检查 `settings.xml` 镜像源；让 AI 换阿里云镜像 |
 | `npm install` 卡住/失败 | 网络或 Node 版本问题 | 换 `npmmirror` 源；确认 Node ≥ 18 |

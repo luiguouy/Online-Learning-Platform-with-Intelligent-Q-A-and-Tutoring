@@ -11,6 +11,7 @@
 1. **严格单一工程，禁止拆分微服务**：
    - 严禁引入 Spring Cloud、Nacos、Eureka、Feign、Dubbo、Seata。
    - 必须采用**单体 Spring Boot 3.x** 应用，包名统一为 `com.smartqa.platform`。
+   - **Spring Boot 版本锁定为 `3.3.5`**（`spring-boot-starter-parent`），JDK 锁定 17。其余依赖均发布于 2024 上半年，均在 3.2/3.3 时代验证过；若用 Initializr 建工程，**必须把版本改回 3.3.5**，禁止用它给的最新版（v7.0 锁定）。
 2. **禁止擅自新增未约定的第三方依赖**：
    - 仅允许使用 `pom.xml` 与 `package.json` 中明确列出的库。严禁引入无意义的通用工具库或废弃库。
 3. **接口返回格式红线**：

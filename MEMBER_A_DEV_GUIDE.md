@@ -27,6 +27,24 @@
 
 > ⚠️ **本清单只是 `pom.xml` 的一部分**。成员 B 负责的依赖（MyBatis-Plus、MySQL 驱动、Sa-Token、Knife4j、spring-security-crypto）列在 `MEMBER_B_DEV_GUIDE.md` 3.1 节。
 > 本项目是**单体 Spring Boot 工程**（见 `AGENT_INSTRUCTIONS.md` 零章禁令），**两份清单必须合并进同一个 `pom.xml`**——不要创建两个工程、两个 pom。缺任何一半，编译都会失败。
+
+**`<parent>` 与属性必须锁定为以下版本**（v7.0 查证后锁定，禁止让 AI 自由选版本）：
+```xml
+<parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>3.3.5</version>
+    <relativePath/>
+</parent>
+
+<properties>
+    <java.version>17</java.version>
+    <maven.compiler.source>17</maven.compiler.source>
+    <maven.compiler.target>17</maven.compiler.target>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+</properties>
+```
+> **为什么锁 3.3.5**：本项目其余依赖均发布于 2024 年上半年（LangChain4j 0.35.0、Sa-Token 1.38.0、MyBatis-Plus 3.5.7、Knife4j 4.5.0），它们都在 Spring Boot 3.2/3.3 时代验证过。若让 AI 自由选"最新的 3.x"（如 3.5.x），可能撞上 3.4+ 的 deprecated API 移除——零经验团队没有排查这种问题的能力。**用 Spring Initializr 建工程时也要把版本改回 3.3.5**，不要直接用它给的最新版。
 ```xml
 <dependencies>
     <!-- Spring Boot 核心 Web 与验证 -->
