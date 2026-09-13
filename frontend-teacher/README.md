@@ -16,14 +16,22 @@
 | D1.2 | 后台布局 + 路由 + 角色守卫 | 完成 | 学生账号访问后台被拒 | 路由守卫拦截 + 登录页角色校验；见第四节自测 |
 | D1.3 | 课件管理页（表格 + 上传入口，先 Mock） | 完成 | 用 Mock 数据能渲染表格 | `CourseDocManage.vue` 渲染 3 条 Mock 课件（含 CHUNKED / PARSING / FAILED 三态） |
 | D1.4 | 课件上传界面（拖拽 + 进度条，先 Mock） | 完成 | 能选择文件并显示进度（不真正上传） | `DocUploadModal.vue` Mock 通道本地模拟进度 0→100% |
-| D1.5 | 准备 3~5 篇测试课件 PDF | 完成 | 放入共享盘，全员可取 | `test-courseware/` 下 4 篇 PDF，共 26.4 KB，中文文本可提取 |
+| D1.5 | 准备 3~5 篇测试课件 PDF | 完成 | 放入共享盘，全员可取 | 4 篇 PDF 共 26.4 KB，中文文本可提取（保留在本地 `项目/D/test-courseware/`，**不入库**，改为发群共享） |
+
+> **Day 1 下午追加：落实组长 A 对 Q1 / Q17 的拍板**
+> - **Q1 已落地**：工程迁入 Monorepo 的 `frontend-teacher/` 子目录（27 个文件），`ci.yml` 新增 `frontend-teacher` 门禁 job。验证：`npm ci`（99 packages）→ `npx vue-tsc --noEmit` 退出码 0 → `npm run build` ✓ 1685 modules / 9.19s，退出码 0。
+> - **Q17 已落地**：`CourseDocManage.vue` 加轮询兜底——3 秒轮询 + **最长 2 分钟自动停** + 页面「刷新」按钮（手动刷新与上传成功都会重置 2 分钟窗口），超时展示 `el-alert` 告示条。
+> - **Q7~Q13 待成员 B**：已在 `src/types/index.ts`、`src/api/teacher.ts` 标 `TODO` 注明当前口径，不阻塞本周。
 
 ---
 
 ## 二、如何运行
 
 ```bash
+npm ci               # 按 package-lock.json 精确安装（与 CI 一致，推荐）
+# 或（无 lockfile 变更时）
 npm install
+
 npm run dev          # 打开 http://localhost:5173
 ```
 
