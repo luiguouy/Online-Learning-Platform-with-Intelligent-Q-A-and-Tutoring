@@ -176,3 +176,42 @@ jobs:
       - name: 未检测到教师端工程
         if: hashFiles('frontend-teacher/package.json') == ''
         run: echo "ℹ️ 未发现 frontend-teacher/package.json，跳过教师端构建（文档仓正常现象）"
+
+  # ---------------------------------------------------------------------------
+  # 门禁 5：学生端前端类型检查与构建（成员 C 交付）
+  #   落地方案：学生端为同仓库 frontend-student/ 子目录（Monorepo），
+  #   与 frontend-teacher/ 对称；本 job 即文件头第 1b 条与门禁 4 注释中
+  #   「frontend-student/ 落地时照此再复制一份即可」所要求的复制件。
+  #   上方 frontend / frontend-teacher 两个 job 一字未动。
+  # ---------------------------------------------------------------------------
+  frontend-student:
+    name: 学生端构建
+    runs-on: ubuntu-latest
+    needs: secret-scan
+    steps:
+      - uses: actions/checkout@v4
+
+      # 学生端工程尚不存在时整个跳过 node 安装：无 lockfile 可解析会让
+      # cache-dependency-path 报 "unable to cache dependencies" 而红叉
+      - uses: actions/setup-node@v4
+        if: hashFiles('frontend-student/package.json') != ''
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend-student/package-lock.json
+
+      - name: 安装依赖（frontend-student 子目录布局）
+        if: hashFiles('frontend-student/package.json') != ''
+        run: npm ci || npm install
+        working-directory: frontend-student
+
+      - name: 类型检查与构建（frontend-student 子目录布局）
+        if: hashFiles('frontend-student/package.json') != ''
+        run: |
+          npx vue-tsc --noEmit
+          npm run build
+        working-directory: frontend-student
+
+      - name: 未检测到学生端工程
+        if: hashFiles('frontend-student/package.json') == ''
+        run: echo "ℹ️ 未发现 frontend-student/package.json，跳过学生端构建（文档仓正常现象）"

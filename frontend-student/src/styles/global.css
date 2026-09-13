@@ -1,0 +1,38 @@
+/* 全局基础样式：只做 reset 与主题变量，禁止污染组件内部选择器（DEV_SPECIFICATION.md 3.2） */
+
+:root {
+  /* 设计主色：Indigo（DEV_SPECIFICATION.md 3.2） */
+  --el-color-primary: #4f46e5;
+  --el-color-primary-light-3: #7c74ec;
+  --el-color-primary-light-5: #a5a0f1;
+  --el-color-primary-light-7: #cecbf7;
+  --el-color-primary-light-8: #e2e0fa;
+  --el-color-primary-light-9: #f0effd;
+  --el-color-primary-dark-2: #3f38b7;
+
+  --app-bg: #f5f6f8;
+  --app-text: #1e293b;
+  --app-text-muted: #64748b;
+  --app-border: #e2e8f0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', Arial, sans-serif;
+  font-size: 14px;
+  color: var(--app-text);
+  background-color: var(--app-bg);
+  -webkit-font-smoothing: antialiased;
+}
