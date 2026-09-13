@@ -1,0 +1,104 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /
+    encoding:
+      charset: UTF-8
+      force: true
+
+spring:
+  application:
+    name: smart-qa-platform
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DB:smart_qa}?useUnicode=true&characterEncoding=utf8mb4&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PASSWORD:123456}
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 60MB
+
+  # ⚠️ 默认关闭 SQL 自动初始化：
+  #    首次建库请手动执行 src/main/resources/db/schema.sql 与 data.sql，
+  #    否则每次重启都会重复插入种子数据（主键冲突 / 账号重复）。
+  #    需要"自动加载表结构"做冒烟验证时，临时把下面两行注释打开（只开 schema，不要开 data）。
+  #  sql:
+  #    init:
+  #      mode: always
+  #      schema-locations: classpath:db/schema.sql
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: isDeleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+sa-token:
+  token-name: Authorization       # ★ 关键：Sa-Token 读取的请求头名就是它
+  timeout: 604800                 # 7 天免登录
+  active-timeout: 86400
+  is-concurrent: true
+  is-share: true
+  token-style: uuid
+  is-read-header: true
+  is-read-cookie: false
+  token-prefix: Bearer            # ★ 关键：头值须带 "Bearer " 前缀（含一个空格）
+
+# ============================================================================
+# ⚠️ 鉴权请求头铁律（v6.0 锁定，全团队唯一标准）
+# ----------------------------------------------------------------------------
+# token-name 设为 Authorization，所以 Sa-Token 读的是 Authorization 请求头；
+# 又配了 token-prefix，因此头值必须是「Bearer + 空格 + token」：
+#
+#     Authorization: Bearer <token>
+#
+# 前端只需要发这一个头（不要再另发 satoken 头，那是多余的）。
+# 前端 localStorage 的键名仍沿用 satoken —— 它只是本地存储的名字，与请求头名无关。
+# 本条对 SSE（/api/qa/chat/stream）同样适用。
+# ============================================================================
+
+rag:
+  llm:
+    base-url: ${AI_BASE_URL:https://api.deepseek.com/v1}
+    api-key: ${AI_API_KEY:sk-placeholder}
+    chat-model: ${AI_CHAT_MODEL:deepseek-chat}
+    temperature: 0.2
+    max-tokens: 1500
+    timeout-seconds: 60
+  chroma:
+    base-url: http://${CHROMA_HOST:localhost}:8000
+    collection-name: smart_qa_course_docs
+  chunk:
+    size: 400
+    overlap: 50
+    similarity-threshold: 0.70
+    top-k: 4
+
+file:
+  upload-dir: ${user.home}/smartqa/uploads/    # 必须绝对路径，相对路径打包后会丢文件
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
+knife4j:
+  enable: true
+  setting:
+    language: zh_cn
+
+logging:
+  level:
+    com.smartqa.platform: info
