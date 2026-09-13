@@ -34,6 +34,7 @@ mvn -B compile
 - [ ] commit 信息符合 Conventional Commits：`<type>(<scope>): <subject>`
 - [ ] 无密钥、无 `application-local.yml`、无大文件混入
 - [ ] 分支存活未超过 3 天，且已同步最新 `dev`
+- [ ] 本 PR 链接已转发到微信群（一行链接即可，不用复述内容）；关联 Issue 已拖到看板 In progress / Ready for review
 
 ### Reviewer 检查（逐条过，不要只点 Approve）
 
