@@ -243,7 +243,7 @@ Day1 环境就绪
 
 | 时间 | 事项 | 产出 |
 | :--- | :--- | :--- |
-| 每日 | 异步站会（群内 3 行，见 `COLLABORATION_WORKFLOW.md` 8.2） | 进度可见 |
+| 每日 | 异步站会（发在任务 Issue 评论区 3 行 + 看板卡片移到 In Progress，见 `COLLABORATION_WORKFLOW.md` 8.2；组员 Agent 按 `COLLAB_AGENT_PROTOCOL.md` 自动执行） | 进度可见 |
 | 每周三 21:00 | 中期集成：`feature` → `dev`，跑一次全链路 | 提前暴露冲突 |
 | 每周日 21:00 | **Gate 评审 + 周报** | 过/不过的明确结论 |
 | Day 19 | 代码冻结 | 只修 Bug |

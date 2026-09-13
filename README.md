@@ -16,7 +16,9 @@
 | 4 | [`dev-docs/COLLABORATION_WORKFLOW.md`](dev-docs/COLLABORATION_WORKFLOW.md) | 全员必读 | **决策权 RACI、分支保护、PR/Review 门禁、CI、完成的定义（DoD）** |
 | 5 | [`dev-docs/AGENT_INSTRUCTIONS.md`](dev-docs/AGENT_INSTRUCTIONS.md) | 喂给 AI 的第一份文件 | Agent 禁令、application.yml 完整模板、线程池规范、冒烟验收清单 |
 | 6 | `dev-docs/MEMBER_X_DEV_GUIDE.md` | 各自认领 | 成员 A（RAG/SSE）、B（业务/DB）、C（学生前端）、D（教师前端） |
-| 7 | [`dev-docs/组员发指令速查卡.md`](dev-docs/组员发指令速查卡.md) | 复制即用 | 组员给 AI 发指令速查卡（含 A/B/C/D 专属第一条指令） |
+| 7 | [`dev-docs/COLLAB_AGENT_PROTOCOL.md`](dev-docs/COLLAB_AGENT_PROTOCOL.md) | **喂给 AI 的协作流程** | 组员 Agent 自动执行：认领 Issue → 开工移卡片 → 每日站会发评论 → 提 PR → 契约变更拦截 |
+| 8 | [`dev-docs/组员发指令速查卡.md`](dev-docs/组员发指令速查卡.md) | 复制即用 | 组员给 AI 发指令速查卡（含 A/B/C/D 专属第一条指令） |
+| 9 | [`dev-docs/群规与站会速查.md`](dev-docs/群规与站会速查.md) | 组长贴群公告 | 微信群使用规则（只转发链接+约会议）+ 看板操作口诀 |
 
 ### 配套工程资产
 
@@ -63,6 +65,7 @@ AI 说"完成了"**不算数**，命令跑过才算数。每生成一个模块�
 
 ### 第 1 步：拿到自己的任务
 确认你对应成员 A / B / C / D（见 `TEAM_WORK_DIVISION.md` 第一章表格）。
+**本周任务已拆成 GitHub Issue 并指派到人**：看板 [https://github.com/users/luiguouy/projects/3](https://github.com/users/luiguouy/projects/3)，或让自己的 Agent 跑 `gh issue list --assignee @me --state open`（前提：本人先 `gh auth login` 一次）。Issue 正文里的"验收标准"就是你要做到的程度。
 
 ### 第 2 步：把文档喂给你的 AI Agent
 > 看不懂文档里的术语？先读 `GLOSSARY.md`，里面有"人话版"术语表和报错速查表。
@@ -70,17 +73,18 @@ AI 说"完成了"**不算数**，命令跑过才算数。每生成一个模块�
 打开你的 AI 编程工具，在新项目的**第一条消息**里按此模板发送：
 
 ```text
-请先完整阅读我提供的 3 份文档，严格遵照执行，不允许自由发挥：
+请先完整阅读我提供的 4 份文档，严格遵照执行，不允许自由发挥：
 1. AGENT_INSTRUCTIONS.md（全局禁令与配置模板，最高优先级）
 2. DEV_SPECIFICATION.md（编码与接口规范）
 3. MEMBER_<你的字母>_DEV_GUIDE.md（你负责模块的详细设计）
+4. COLLAB_AGENT_PROTOCOL.md（协作流程：开工移卡片、每日站会发 Issue、提 PR 的自动动作）
 
-我现在的任务是：<从你成员指南"第X章"里抄一个具体任务>。
+我现在的任务是：<从指派给我的 Issue 里抄任务编号与目标>。
 先列出你将创建/修改的文件清单让我确认，再开始写代码。
 每次写完后，对照 AGENT_INSTRUCTIONS.md 第四章的 7 项冒烟清单自查并报告结果。
 ```
 
-把三份文档的文件拖进对话（或在 Claude Code 里 `@文件名` 引用）。
+把四份文档的文件拖进对话（或在 Claude Code 里 `@文件名` 引用）。
 
 ### 第 3 步：小步快跑，每一步都要能编译
 - 不要一次让 Agent "把整个后端写完"。按成员指南的章节拆小任务（如"只实现登录接口"）。
