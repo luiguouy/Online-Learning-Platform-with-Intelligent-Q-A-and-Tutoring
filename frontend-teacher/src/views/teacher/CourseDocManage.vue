@@ -105,18 +105,23 @@ const hasPendingTask = computed(() =>
   ),
 );
 
-async function loadDocs(): Promise<void> {
+/**
+ * 拉取课件列表。
+ * @param silent 轮询刷新传 true：不触发 loading 遮罩、不弹错误提示，
+ *               避免表格每 3 秒闪一次遮罩（PR #27 评审）；失败静默，等下次轮询或手动刷新。
+ */
+async function loadDocs(silent = false): Promise<void> {
   const courseId = currentCourseId.value;
   if (courseId === null) return;
 
-  loading.value = true;
+  if (!silent) loading.value = true;
   try {
     docList.value = await fetchDocList(courseId);
     syncPolling();
   } catch {
-    ElMessage.error('课件列表加载失败');
+    if (!silent) ElMessage.error('课件列表加载失败');
   } finally {
-    loading.value = false;
+    if (!silent) loading.value = false;
   }
 }
 
@@ -125,7 +130,7 @@ function startPolling(): void {
   if (pollTimer !== null) return;
   pollDeadline = Date.now() + POLL_MAX_DURATION_MS;
   pollExpired.value = false;
-  pollTimer = window.setInterval(loadDocs, POLL_INTERVAL_MS);
+  pollTimer = window.setInterval(() => void loadDocs(true), POLL_INTERVAL_MS);
 }
 
 function stopPolling(): void {

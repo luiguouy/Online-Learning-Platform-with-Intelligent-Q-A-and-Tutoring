@@ -58,6 +58,13 @@ const UPLOAD_ACTION = '/api/teacher/docs/upload';
 /** 单文件大小上限 50MB */
 const MAX_FILE_SIZE_MB = 50;
 
+/**
+ * 允许的扩展名（大小写不敏感）。
+ * accept 只能约束点击文件选择器，Element Plus 的拖拽通道不做类型过滤，
+ * 必须在 beforeUpload 里兜底校验（PR #27 评审）。
+ */
+const ALLOWED_EXTENSIONS = ['pdf', 'docx', 'md', 'txt'];
+
 const props = defineProps<{ courseId: number | null }>();
 const emit = defineEmits<{ (e: 'uploaded'): void }>();
 const visible = defineModel<boolean>({ required: true });
@@ -104,6 +111,12 @@ const uploadBindings = computed<Partial<UploadProps>>(() => {
 });
 
 function beforeUpload(file: File): boolean {
+  const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
+  if (!ALLOWED_EXTENSIONS.includes(extension)) {
+    ElMessage.error('仅支持 PDF / DOCX / Markdown / TXT 格式的文件');
+    return false;
+  }
+
   const isLt50M = file.size / 1024 / 1024 < MAX_FILE_SIZE_MB;
   if (!isLt50M) {
     ElMessage.error(`上传文件大小不能超过 ${MAX_FILE_SIZE_MB}MB!`);
