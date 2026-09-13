@@ -10,7 +10,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 /**
  * SSE 流式问答接口（A1.5）
  *
- * 接口路径：GET /api/sse/chat
+ * 接口路径：GET /api/qa/chat/stream（接口矩阵冻结路径，见 TEAM_WORK_DIVISION.md 第三章；
+ * B 的限流拦截器注册在同一路径，改路径会导致限流失效）
  * 返回类型：text/event-stream（Server-Sent Events）
  *
  * SSE 事件格式：
@@ -20,7 +21,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  */
 @Tag(name = "智能问答", description = "RAG 流式问答接口（SSE）")
 @RestController
-@RequestMapping("/api/sse")
+@RequestMapping("/api/qa")
 public class SseChatController {
 
     private final SseStreamService sseStreamService;
@@ -39,7 +40,7 @@ public class SseChatController {
      */
     @Operation(summary = "RAG 流式问答（SSE）",
                description = "基于课件向量检索 + 大模型流式输出，前端通过 EventSource 接收逐 Token 回复")
-    @GetMapping(value = "/chat", produces = "text/event-stream;charset=UTF-8")
+    @GetMapping(value = "/chat/stream", produces = "text/event-stream;charset=UTF-8")
     public SseEmitter chat(
             @Parameter(description = "课程 ID", required = true)
             @RequestParam Long courseId,
