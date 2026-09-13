@@ -1,5 +1,6 @@
 package com.smartqa.platform.controller;
 
+import cn.dev33.satoken.stp.StpUtil;
 import com.smartqa.platform.service.rag.SseStreamService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -14,10 +15,11 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * B 的限流拦截器注册在同一路径，改路径会导致限流失效）
  * 返回类型：text/event-stream（Server-Sent Events）
  *
- * SSE 事件格式：
- *   event: message  →  data: &lt;token&gt;      （每个 AI 回复 Token）
- *   event: done     →  data: [DONE]         （流结束标记）
- *   event: error    →  data: &lt;错误信息&gt;   （异常时推送）
+ * SSE 事件格式（DEV_SPECIFICATION.md 4.2 冻结，data 一律为 JSON）：
+ *   event: references → [{"docId","fileName","chunkIndex","score","snippet"}]  首包出处
+ *   event: message   → {"delta": "<增量文本>"}                                流式吐字
+ *   event: done      → {"recordId","sessionId","finishReason","totalTokens"}  结束标记
+ *   event: error     → {"errorCode","message"}                                异常中断
  */
 @Tag(name = "智能问答", description = "RAG 流式问答接口（SSE）")
 @RestController
@@ -35,7 +37,7 @@ public class SseChatController {
      *
      * @param courseId  课程 ID（必填，检索范围限定在当前课程的课件）
      * @param question  学生提问内容（必填）
-     * @param sessionId 问答会话 ID（可选；首次提问传 null，续问传上次返回的 sessionId）
+     * @param sessionId 问答会话 ID；传 0 或省略时懒创建新会话，续问传上次 done 包返回的 sessionId
      * @return SseEmitter（Spring 负责以 text/event-stream 格式推送）
      */
     @Operation(summary = "RAG 流式问答（SSE）",
@@ -48,14 +50,18 @@ public class SseChatController {
             @Parameter(description = "学生问题", required = true)
             @RequestParam String question,
 
-            @Parameter(description = "会话 ID（首次提问传空，续问传上次 sessionId）")
+            @Parameter(description = "会话 ID（首次提问传 0 或省略，续问传上次 done 包的 sessionId）")
             @RequestParam(required = false) Long sessionId) {
+
+        // 关键：登录态必须在请求线程取（Sa-Token 是 ThreadLocal），
+        // 传给 sseExecutor 异步线程里的 streamChat —— 它拿不到登录态。
+        long userId = StpUtil.getLoginIdAsLong();
 
         // 超时时间 120 秒（与 application.yml rag.llm.timeout-seconds 保持裕量）
         SseEmitter emitter = new SseEmitter(120_000L);
 
         // 在异步线程池中执行 RAG 检索 + 流式推送，避免阻塞 Tomcat 工作线程
-        sseStreamService.streamChat(emitter, courseId, question, sessionId);
+        sseStreamService.streamChat(emitter, userId, courseId, question, sessionId);
 
         return emitter;
     }
