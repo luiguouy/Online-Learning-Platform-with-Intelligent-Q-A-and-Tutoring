@@ -14,7 +14,7 @@ gh auth status
 
 - 显示本人账号已登录 → 继续。
 - 未登录 → **停下来**，让组员自己在终端跑 `gh auth login`（选 GitHub.com → HTTPS → Login with a web browser），Agent 不要代填任何凭据。
-- 登录身份必须与自己的 Issue assignee 一致（A=luiguouy，B=Cheng-king666，D=susir1，C 待加入）。
+- 登录身份必须与自己的 Issue assignee 一致（A=luiguouy，B=Cheng-king666，C=vitamin32，D=susir1）。
 
 ---
 
