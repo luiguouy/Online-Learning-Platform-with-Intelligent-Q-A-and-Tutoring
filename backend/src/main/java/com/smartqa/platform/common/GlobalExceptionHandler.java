@@ -5,8 +5,10 @@ import cn.dev33.satoken.exception.NotRoleException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 /**
  * 全局统一异常处理器
@@ -54,6 +56,26 @@ public class GlobalExceptionHandler {
                 .orElse("参数校验失败");
         log.warn("参数校验失败: {}", msg);
         return Result.fail(400, msg);
+    }
+
+    /**
+     * 缺少必填请求参数 (400)
+     * 例如查询课件列表时漏传 courseId，若不捕获会被兜底成 500，前端无法区分"用户传错"与"服务崩了"
+     */
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public Result<Void> handleMissingParam(MissingServletRequestParameterException e) {
+        log.warn("缺少必要请求参数: {}", e.getParameterName());
+        return Result.fail(400, "缺少必要参数：" + e.getParameterName());
+    }
+
+    /**
+     * 上传文件超过大小上限 (400)
+     * 由 Spring multipart 限制触发（application.yml 的 max-file-size），统一转成可读提示
+     */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public Result<Void> handleMaxUploadSize(MaxUploadSizeExceededException e) {
+        log.warn("上传文件超过大小上限: {}", e.getMessage());
+        return Result.fail(400, "文件超过 50MB 上限，请压缩后重试");
     }
 
     /**
