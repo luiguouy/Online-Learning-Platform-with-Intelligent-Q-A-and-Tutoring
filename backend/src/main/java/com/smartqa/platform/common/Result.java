@@ -1,5 +1,6 @@
 package com.smartqa.platform.common;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -8,35 +9,29 @@ import lombok.NoArgsConstructor;
 import java.io.Serializable;
 
 /**
- * 统一响应封装。所有 REST 接口必须返回它，严禁裸返回任何其他结构。
+ * 统一 REST 响应体封装
  *
- * <p>code 约定（DEV_SPECIFICATION 第四章）：</p>
- * <ul>
- *   <li>200 — 成功</li>
- *   <li>400 — 业务警告 / 参数错误</li>
- *   <li>401 — 未登录</li>
- *   <li>403 — 无权</li>
- *   <li>404 — 资源不存在（本模块用于课件 / 课程 / 记录不存在）</li>
- *   <li>429 — 触发限流</li>
- *   <li>500 — 系统异常</li>
- * </ul>
- *
- * @author 成员 B
+ * @param <T> 数据载荷类型
  */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@Schema(description = "统一响应包装结构")
 public class Result<T> implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
+    @Schema(description = "响应状态码：200成功，400业务异常，401未登录，403无权限，500系统繁忙", example = "200")
     private Integer code;
 
+    @Schema(description = "响应信息描述", example = "操作成功")
     private String message;
 
+    @Schema(description = "响应数据对象")
     private T data;
 
+    @Schema(description = "时间戳 (毫秒)", example = "1726135200000")
     private Long timestamp;
 
     public static <T> Result<T> success(T data) {
@@ -59,5 +54,9 @@ public class Result<T> implements Serializable {
                 .data(null)
                 .timestamp(System.currentTimeMillis())
                 .build();
+    }
+
+    public static <T> Result<T> fail(String message) {
+        return fail(400, message);
     }
 }

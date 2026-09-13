@@ -101,7 +101,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 前端工程尚不存在时整个跳过 node 安装：无 lockfile 可解析会让
+      # cache-dependency-path 报 "unable to cache dependencies" 而红叉
       - uses: actions/setup-node@v4
+        if: hashFiles('frontend/package.json') != '' || hashFiles('package.json') != ''
         with:
           node-version: "20"
           cache: "npm"
