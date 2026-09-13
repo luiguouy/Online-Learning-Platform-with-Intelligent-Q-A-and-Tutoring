@@ -11,7 +11,9 @@ spring:
     name: smart-qa-platform
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DB:smart_qa}?useUnicode=true&characterEncoding=utf8mb4&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    # characterEncoding 必须是 Java 字符集名（UTF-8）；写 utf8mb4 会被 Connector/J 8.x 拒绝并抛
+    # UnsupportedEncodingException，导致所有查询失败。Connector/J 8.0.13+ 自动把 UTF-8 映射为 utf8mb4。
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DB:smart_qa}?useUnicode=true&characterEncoding=UTF-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: ${MYSQL_USER:root}
     password: ${MYSQL_PASSWORD:123456}
     hikari:
