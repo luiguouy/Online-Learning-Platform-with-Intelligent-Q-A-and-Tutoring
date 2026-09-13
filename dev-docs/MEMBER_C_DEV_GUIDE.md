@@ -2,7 +2,7 @@
 
 > **角色**：成员 C（学生前台核心开发工程师 · 前端工程师）  
 > **职责模块**：学生前台问答工作台、SSE 打字机流式通讯、Markdown 与代码高亮渲染、知识库溯源抽屉、知识点解析展示  
-> **适用技术栈**：Vue 3 (Composition API) + Vite + TypeScript + Pinia + Element Plus + Tailwind CSS + Highlight.js + DOMPurify
+> **适用技术栈**：Vue 3 (Composition API) + Vite + TypeScript + Pinia + Element Plus + Highlight.js + DOMPurify
 
 ---
 
@@ -11,11 +11,11 @@
 成员 C 是学生用户的**“第一视觉与交互体验守门人”**，负责将复杂的 RAG 检索和大模型推理以丝滑、可信、直观的界面呈现给学生：
 
 1. **学生工作台框架搭建**：实现响应式布局，左侧为课程切换与历史会话导航列表，中央为主问答流，右侧为出处溯源抽屉。
-2. **SSE 流式通讯接收器**：封装 `fetch-event-source` 或标准 Fetch ReadableStream，精确监听解析 4 类后端事件（`references` -> `message` -> `done` -> `error`），实现零卡顿的流式打字机吐字效果。
-3. **Markdown 与公式代码高亮渲染**：渲染大模型返回的复杂排版，支持代码一键复制、表格展示、防 XSS 注入净化。
+2. **SSE 流式通讯接收器**：封装 `@microsoft/fetch-event-source`（**必须用它，不要用原生 EventSource**——原生 EventSource 带不上 `Authorization` 头；也不要用裸 Fetch ReadableStream 手搓解析，4 类事件解析易出错），精确监听解析 4 类后端事件（`references` -> `message` -> `done` -> `error`），实现零卡顿的流式打字机吐字效果。
+3. **Markdown 与代码高亮渲染**：渲染大模型返回的复杂排版，支持代码一键复制、表格展示、防 XSS 注入净化。**不做数学公式渲染**（不引入 KaTeX/MathJax，已超出功能范围）。
 4. **知识库出处溯源侧边抽屉 (Grounding Drawer)**：当回答中出现课件引用或者首包送达 `references` 时，以卡片形式展示命中课件文件名、相似度分数与原文片段，点击可展开高亮。
 5. **知识点深度解析展示**：支持一键触发知识点精解，以 Markdown 展示核心概念定义与难点辨析（**不含自测题**，不做答题交互）。
-6. **交互反馈闭环**：实现每条回答底部的点赞、点踩、重新生成与复制回答功能。
+6. **交互反馈闭环**：实现每条回答底部的点赞、点踩功能（P1 必做）；"重新生成"与"复制回答"为 P3 体验项，时间不够可不做。
 
 ---
 
@@ -75,6 +75,8 @@ src/
 ---
 
 ## 四、 核心功能代码实现指南
+
+> ⚠️ **样式说明**：本文件示例代码里的 `text-slate-500`、`p-3`、`rounded-lg` 这类工具类只是示意排版效果，**项目并未安装 Tailwind CSS**（依赖红线，见第二节）。实现时用 `<style scoped>` 写普通 CSS 或直接用 Element Plus 组件属性达到同样效果即可，**不要为几行示例去装 Tailwind**。
 
 ### 4.1 核心 SSE 流式客户端封装 (`src/utils/sseClient.ts`)
 **实现要点**：必须持有 `AbortController`，在用户点击“停止生成”或切换会话时随时中断请求，杜绝内存泄漏和错位渲染。

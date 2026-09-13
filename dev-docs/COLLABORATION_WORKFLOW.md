@@ -55,7 +55,7 @@ main            ← 演示/发布分支，永远可运行，只有组长能合�
 | 分支 | 保护项 | 目的 |
 | :--- | :--- | :--- |
 | `main` | 禁止直接 push；需 1 个 PR；需 1 人 approve；CI 全绿才允许合并；禁止 force push | 演示分支永不污染 |
-| `dev` | 禁止直接 push；需 1 个 PR；CI 全绿才允许合并；禁止 force push | 集成分支可追溯 |
+| `dev` | 禁止直接 push；需 1 个 PR；需 1 人 approve；CI 全绿才允许合并；禁止 force push | 集成分支可追溯，与 3.4 合并条件一致 |
 
 **可选项（推荐）**：配置 `.github/CODEOWNERS` 自动指定 Reviewer：
 
@@ -101,7 +101,7 @@ main            ← 演示/发布分支，永远可运行，只有组长能合�
 
 **后端（A/B 互审，组长终审）**
 - [ ] Controller 不写业务逻辑，Service 不拼 `HttpServletResponse`
-- [ ] 所有 REST 接口返回 `Result<T>` 统一包装
+- [ ] 所有 REST 接口返回 `Result<T>` 统一包装（唯一例外：鉴权/限流拦截器在 `preHandle` 直写 401/429 JSON，见 `MEMBER_B_DEV_GUIDE.md` 4.6 与 README 铁律 4）
 - [ ] 新增接口的字段与 `DEV_SPECIFICATION.md` 4.2 契约一致
 - [ ] 数据库变更同步更新了 DDL 脚本
 - [ ] SSE 相关改动未破坏 4 事件 JSON 载荷约定，`done` 仍含 `recordId`
@@ -128,15 +128,14 @@ main            ← 演示/发布分支，永远可运行，只有组长能合�
 
 | 阶段 | 后端 | 前端 | 说明 |
 | :--- | :--- | :--- | :--- |
-| 编译 | `mvn -B compile` | `vue-tsc --noEmit` | 类型/语法错误必须零容忍 |
-| 构建 | `mvn -B test-compile` | `vite build` | 保证能出包 |
-| 密钥扫描 | 正则扫描 `sk-` / `AKIA` / 明文密码 | 同左 | **防 Key 泄露，硬门禁** |
+| 密钥扫描 | 正则扫描 `sk-` / `AKIA` / 明文密码 | 同左 | **防 Key 泄露，硬门禁**，最先跑 |
+| 编译 | `mvn -B compile -DskipTests` | `vue-tsc --noEmit` + `vite build` | 语法/类型错误零容忍；**本期不要求单元测试**（3 周工期下测试用例已裁剪，门禁以"能编译能构建"为准） |
 | 文档/格式 | — | — | 暂不做强制（避免过度工程） |
 
 ### 4.2 工作流文件
  
  工作流文件位于仓库根目录 `.github/workflows/ci.yml`。
- 该文件已配置 `paths` 过滤器，当修改 `backend/` 下的 Java 源码或 `pom.xml` 时会自动触发门禁流水线。变更纯文档（`dev-docs/`）时不会触发编译任务。
+ 该文件已配置 `paths` 过滤器：**push 到 `main`/`dev` 时**，只改了 `dev-docs/` 等纯文档不会触发后端/前端构建。注意 `pull_request` 触发器**没有** `paths` 过滤——任何 PR 都会完整跑一遍门禁（这是有意的：PR 是合并前唯一的全量校验点）。
 
 ### 4.3 CI 纪律
 
@@ -178,7 +177,7 @@ main            ← 演示/发布分支，永远可运行，只有组长能合�
 
 1. **提 Issue**：在代码仓新建 Issue，标题 `[契约变更] xxx`，写清改什么、为什么要改、影响谁。
 2. **双方确认**：提供方与调用方都在 Issue 里回复同意（这是 C 列咨询的落地点）。
-3. **先改文档后改代码**：先向**文档仓**提 PR 更新 `DEV_SPECIFICATION.md`，合并后再改代码。顺序不能颠倒——否则代码改了文档没改，下一轮 AI Agent 又会按旧文档生成错误代码。
+3. **先改文档后改代码**：本仓是 Monorepo，文档与代码同仓——先提一个只改 `DEV_SPECIFICATION.md` 的 PR（标题带 `[契约变更]`），组长合并后，再提改代码的 PR。顺序不能颠倒——否则代码改了文档没改，下一轮 AI Agent 又会按旧文档生成错误代码。
 4. **群内通知**：合并后在群里 @ 全体，说明变更点与需要重新拉取的内容。
 
 ### 6.4 Mock 先行（解耦依赖，避免"我等你"）
@@ -272,8 +271,8 @@ B 建表 + 登录接口  →  C/D 能登录  →  A 的 SSE（依赖 B 的 qa_re
 
 1. 发现者提 Issue（模板 `bug.yml`），**必须写复现步骤**，附截图或报错日志。
 2. 组长 24 小时内定级并指派给对应成员。
-3. 修复者从 `dev` 拉 `fix/<字母>-<短名>` 分支，PR 描述里写 **根因**（不是"修好了"，而是"为什么会出现"）。
-4. 修复后由**发现者**验证关闭，不是修复者自己关。
+3. 修复者从 `dev` 拉 `fix/<字母>-<短名>` 分支，PR 描述里写 **根因**（不是"修好了"，而是"为什么会出现"）。**缺陷 PR 不要写 `Closes #`**——写了会在合并时自动关单，跳过第 4 步。
+4. 修复后由**发现者**验证并手动关闭 Issue，不是修复者自己关。（任务类 Issue 走 `Closes #` 自动关单，缺陷类走发现者确认关单，两套规则各管各的。）
 
 > **根因要求**：本项目明确要求根因分析（root-cause），不接受"重启一下好了""换种写法就好了"这类表面修复。修完要能回答"为什么之前会错"。
 
@@ -309,7 +308,7 @@ B 建表 + 登录接口  →  C/D 能登录  →  A 的 SSE（依赖 B 的 qa_re
 | 4 | 4 人各自本地环境自检（Node / JDK / Maven / MySQL / Docker） | 全体 | 能跑通 `mvn -v` 与 `npm -v` |
 | 5 | 组长统一分发大模型 Key，全员用环境变量注入 | A | 各自本地能跑通一次 API 调用 |
 | 6 | 复制 `dev-docs/templates/application-example.yml` 为 `backend/src/main/resources/application-local.yml` | 全体 | 后端能启动，且该文件不入库 |
-| 7 | 建 GitHub Project 看板，把第 1 周任务拆成 Issue 并指派 | A | 看板有 To do / In progress / Done 三列 |
+| 7 | 建 GitHub Project 看板，把第 1 周任务拆成 Issue 并指派 | A | 看板有 Todo / In Progress / Ready for review / Done 四列 |
 | 8 | 约定每日站会与每周集成时间，写进群公告 | A | 全员确认时间 |
 
 ---

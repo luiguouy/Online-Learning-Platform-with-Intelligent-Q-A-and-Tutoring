@@ -59,7 +59,7 @@ Day1 环境就绪
   D: 上传界面（Mock，Day 3~6）────→ B: 真实上传接口（Day 7~9）──→ D: 对接真实接口（Day 10~12）
 ```
 
-**唯一硬死锁**：**成员 B 必须在 Day 3 结束前把两个方法签名交给 A**（`saveStreamingRecord` / `createSessionLazy`，见 `MEMBER_B_DEV_GUIDE.md` 5.1）。哪怕内部先返回假数据，签名与返回类型必须冻结。**违反一次，整体延期 3 天。**
+**唯一硬死锁**：**成员 B 必须在 Day 3 结束前把两个方法签名交给 A**（`saveStreamingRecord` / `createSessionLazy`，见 `MEMBER_B_DEV_GUIDE.md` 5.1）。哪怕内部先返回假数据，签名与返回类型必须冻结。**这是"禁止空桩"红线的唯一命名例外**（见 `AGENT_INSTRUCTIONS.md` 全局禁令第 4 条），假数据实现必须加 `// B1.5 临时桩` 注释，A2.3 联调前由 B 替换。**违反一次，整体延期 3 天。**
 
 ---
 
@@ -72,7 +72,7 @@ Day1 环境就绪
 | # | 任务 | 验收标准 |
 | :--- | :--- | :--- |
 | 0.1 | 完成 `COLLABORATION_WORKFLOW.md` 附录 A 的准备清单 | 4 人都能 push；测试 PR 能看到模板与 Actions 运行 |
-| 0.2 | 建看板（To do / In progress / Done），本周任务拆成 Issue 并指派 | 每人有明确归属 |
+| 0.2 | 建看板（Todo / In Progress / Ready for review / Done 四列），本周任务拆成 Issue 并指派 | 每人有明确归属 |
 | 0.3 | 本地环境自检：`java -version`（17）、`mvn -v`、`node -v`（≥18）、`docker ps` | 4 人截图发群 |
 
 ### 3.2 成员 A（组长 / RAG 核心）

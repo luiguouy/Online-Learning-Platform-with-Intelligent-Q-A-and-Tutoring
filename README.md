@@ -32,13 +32,22 @@
 
 > 以上工程资产在仓库根目录直接生效，提交 `backend/` 下的 Java 源码时 CI 流水线会自动触发校验。
 
-**契约定级规则**：若不同文档描述冲突，一律以 `dev-docs/DEV_SPECIFICATION.md` 第四章（接口契约）为准；其余以各自成员指南中"v1.1 审查回写"后的内容为准。发现新的冲突，停下问组长，不要自行发明。
+**冲突裁决表（唯一标准，Agent 与人都按此执行）**：
+
+| 冲突类型 | 以谁为准 |
+| :--- | :--- |
+| 接口路径 / 字段 / SSE 事件格式 | `DEV_SPECIFICATION.md` 第四章（4.2） |
+| 工期、功能范围、裁剪顺序 | `THREE_WEEK_PLAN.md` |
+| 协作流程（看板、站会、PR、Review、关单） | `COLLABORATION_WORKFLOW.md` + `COLLAB_AGENT_PROTOCOL.md`（后者是前者的 Agent 执行细则） |
+| 依赖版本 / 配置键 / 包结构红线 | `AGENT_INSTRUCTIONS.md` |
+| 某成员模块的实现细节 | 该成员的 `MEMBER_X_DEV_GUIDE.md`（但不得违反上述四行） |
+| 同一文件内部自相矛盾、或表上找不到归属 | **停下问组长，不要自行发明**；组长在对应 Issue 评论裁决并留痕 |
 
 ## 二、组员操作指南
 
 ### 开工前先背：三条保命纪律
 
-看不懂技术细节没关系，这三条**照做就行**。它们比任何一份文档都重要——文档管"怎么写对"，这三条管"写错了能当场发现"。
+看不懂技术细节没关系，这三条**照做就行**。文档管"怎么写对"，这三条管"写错了能当场发现"；内容冲突时按上面"冲突裁决表"判。
 
 **纪律 1：第 1~2 天只做技术验证，不写业务代码。**
 - 成员 A 必须先跑 `THREE_WEEK_PLAN.md` 3.2 节的 A1.1（Chroma 验证）和 A1.2（大模型连通验证），各半天。
@@ -81,7 +90,7 @@ AI 说"完成了"**不算数**，命令跑过才算数。每生成一个模块�
 
 我现在的任务是：<从指派给我的 Issue 里抄任务编号与目标>。
 先列出你将创建/修改的文件清单让我确认，再开始写代码。
-每次写完后，对照 AGENT_INSTRUCTIONS.md 第四章的 7 项冒烟清单自查并报告结果。
+每次写完后，对照 AGENT_INSTRUCTIONS.md 第四章的 7 项冒烟清单自查并报告结果（第 1 周只需 1~3 项；4~7 项从第 2 周登录与 SSE 打通后开始适用）。
 ```
 
 把四份文档的文件拖进对话（或在 Claude Code 里 `@文件名` 引用）。
@@ -92,7 +101,7 @@ AI 说"完成了"**不算数**，命令跑过才算数。每生成一个模块�
 - Agent 说"完成了"不等于完成——要求它贴出编译/运行成功的输出。
 
 ### 第 4 步：提交代码
-按 `DEV_SPECIFICATION.md` 第一章执行：从 `dev` 分支拉 `feature/xxx` 分支，提交信息用 `feat(scope): 描述` 格式，发起 Pull Request 合并到 `dev`。**禁止把任何 API Key 写进代码或提交**（Key 放 `application-local.yml` 或环境变量，该文件已被 .gitignore 忽略）。
+按 `DEV_SPECIFICATION.md` 第一章执行：从 `dev` 分支拉 `feature/<你的字母>-<短名>` 分支（强制格式见 `COLLABORATION_WORKFLOW.md` 2.1），提交信息用 `feat(scope): 描述` 格式，发起 Pull Request 合并到 `dev`。**禁止把任何 API Key 写进代码或提交**（Key 放 `application-local.yml` 或环境变量，该文件已被 .gitignore 忽略）。
 
 ## 三、最重要的 6 条铁律（Agent 最容易违反的）
 
@@ -100,7 +109,7 @@ AI 说"完成了"**不算数**，命令跑过才算数。每生成一个模块�
    **严禁自行添加**统计图表、数据导出、人工纠偏、知识点自测题、多轮对话、语音输入等功能。**少做一个功能，比多做一个功能更有价值**（详见 `THREE_WEEK_PLAN.md` 第一节的功能范围表）。
 2. **单体 Spring Boot 工程**，严禁微服务/拆分多工程（包名 `com.smartqa.platform`）。
 3. **SSE 协议只有 4 种事件**：`references` / `message` / `done` / `error`，全部 JSON 载荷，`done` 必含 `recordId`——格式以 `DEV_SPECIFICATION.md` 4.2 为唯一标准。
-4. **所有 REST 接口返回 `Result<T>` 统一包装**，严禁裸返回。
+4. **所有 REST 接口返回 `Result<T>` 统一包装**，严禁裸返回。唯一例外：Sa-Token 鉴权拦截器与限流拦截器在 `preHandle` 里直接向 response 写 401/429 的 JSON（写法见 `MEMBER_B_DEV_GUIDE.md` 4.5/4.6，字段名必须与 `Result` 一致），因为拦截器阶段拿不到 Controller 返回值。
 5. **严禁硬编码密钥**；LLM Key、数据库密码一律环境变量注入。
 6. **前后端字段不许猜**：接口先由成员 B 出 Knife4j 文档，前端照文档调用。Token 存 `localStorage` 统一键名 `satoken`，请求头统一 `Authorization: Bearer <token>`——**头值必须带 `Bearer ` 前缀（含空格）**，只写裸 token 会被判未登录返回 401（见 `DEV_SPECIFICATION.md` 4.2）。
 
@@ -110,7 +119,7 @@ AI 说"完成了"**不算数**，命令跑过才算数。每生成一个模块�
 
 开工第一周必须先做两个技术验证（成员 A 负责，各半天）：
 1. **Chroma 元数据过滤验证**：确认 `langchain4j-chroma 0.35` 的 `EmbeddingSearchRequest.filter(IsEqualTo("courseId", ...))` 与 `removeAll(filter)` 真实可用。不可用则立即改用 LangChain4j 内置向量存储 + 本地文件持久化（成员 A 指南已允许此退路），并通知全员更新文档。
-2. **大模型连通验证**：用 `AGENT_INSTRUCTIONS.md` 的 yml 模板直连通义千问/DeepSeek 兼容接口，跑通一次流式输出；同时验证种子账号 `teacher01/123456` 能 BCrypt 登录。
+2. **大模型连通验证**：用 `AGENT_INSTRUCTIONS.md` 的 yml 模板直连通义千问/DeepSeek 兼容接口，跑通一次流式输出。（种子账号 `teacher01/123456` 的 BCrypt 登录验证属于成员 B 的第 1 周任务 B1.4/B1.8，不在 A 的 Day 1~2 验证范围内。）
 
 ## 五、 开工前必做：第 0 周准备清单
 

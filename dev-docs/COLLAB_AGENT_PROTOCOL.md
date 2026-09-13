@@ -27,7 +27,7 @@ gh auth status
 gh issue list --repo luiguouy/Online-Learning-Platform-with-Intelligent-Q-A-and-Tutoring --assignee @me --state open
 ```
 
-标题格式 `[A2.1] Top-K 向量检索…` 与 `THREE_WEEK_PLAN.md` 任务编号一一对应。Issue 正文含：任务目标、交付物、验收标准、截止日。**验收标准就是本任务的 DoD，优先于任何口头描述。**
+标题格式 `[A2.1] Top-K 向量检索…` 与 `THREE_WEEK_PLAN.md` 任务编号一一对应。Issue 正文含：任务目标、交付物、验收标准、截止日。**验收标准是任务完成的必要条件，但不是充分条件**——提 PR 前仍要过 `COLLABORATION_WORKFLOW.md` 第五节的 DoD 五层（代码/自测/契约/提交/集成）。口头描述优先级最低。
 
 组员说"我要做 XXX"但没给编号时，先从上面列表里找到最匹配的 Issue，把编号复述给组员确认后再动手。
 
@@ -76,7 +76,7 @@ gh issue edit <编号> --repo <同仓库> --add-label blocked
 任务完成后：
 
 1. 对照 Issue 正文的验收标准**逐条自测**，把真实命令输出（`BUILD SUCCESS` / 接口返回 / 测试结果）整理进 PR 描述——遵循 `.github/PULL_REQUEST_TEMPLATE.md` 四段式。
-2. 创建 PR 指向 `dev`，描述首行写 `Closes #<编号>`（合并时自动关 Issue）。
+2. 创建 PR 指向 `dev`，描述首行写 `Closes #<编号>`（合并时自动关 Issue）。**例外**：修复 `bug.yml` 缺陷 Issue 的 PR **不要写 `Closes #`**——缺陷要由发现者验证后手动关单（`COLLABORATION_WORKFLOW.md` 9.2）。
 
 ```bash
 gh pr create --repo luiguouy/Online-Learning-Platform-with-Intelligent-Q-A-and-Tutoring --base dev --title "<type>(<scope>): <subject>" --body "..."
@@ -87,7 +87,7 @@ gh pr create --repo luiguouy/Online-Learning-Platform-with-Intelligent-Q-A-and-T
 
 ## 5. 合并与完成
 
-- CI 全绿 + 至少 1 人 Approve + 评论清完 → 组长（或有权限者）合并 → Issue 因 `Closes #` 自动关闭。
+- CI 全绿 + 至少 1 人 Approve + 评论清完 → 组长（或有权限者）合并 → 任务 Issue 因 `Closes #` 自动关闭（缺陷 Issue 由发现者验证后手动关，见 §4 例外）。
 - 合并后 Agent 把卡片移到 **Done**（`7ef1e567`），删除已合并的远程分支。
 - **禁止**：`--no-verify`、强推公共分支、注释掉失败用例凑 CI 绿、自己给自己 Approve 后秒合（A 除外，A 是终审人但改动 main 仍需走 PR）。
 

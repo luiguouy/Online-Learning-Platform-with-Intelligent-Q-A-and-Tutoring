@@ -155,6 +155,7 @@ src/
 - 资源使用名词复数，小写字母加短横线（kebab-case）：
   - 正确：`/api/teacher/course-documents`
   - 错误：`/api/teacher/getCourseDocList`、`/api/teacher/update_doc`
+  > ⚠️ 本节只是命名**原则**，不是接口清单。4.2 已冻结的实际契约路径（如 `/api/teacher/docs/upload`、`/api/teacher/docs/list`）与本页示例不一致时，**一律以 4.2 为准**，严禁按示例"顺手改名"——改名就是契约变更，必须走 `COLLABORATION_WORKFLOW.md` 6.3 四步法。
 - HTTP 动词语义化：
   - `GET`：查询数据（幂等，不得产生业务副作用）
   - `POST`：创建资源或执行复杂查询
@@ -260,5 +261,5 @@ Authorization: Bearer <token>
 ### 6.2 联调与代码合并纪律
 1. **先拉取后提交**：每天开始写代码前，先 `git pull origin dev`；提交 PR 前，先在本地 rebase 或 merge 最新的 `dev` 并编译通过。
 2. **前后端接口先行**：成员 B 必须先输出 Knife4j 接口定义或 Postman Mock 集合，成员 C/D 方可开始调用，严禁“前端盲猜后端字段”。
-3. **冒烟测试再合并**：任何 PR 合并至 `dev` 分支前，组长（成员 A）需简单做一次端到端冒烟测试（登录 -> 课件上传 -> 提问输出打字机效果 -> 记录可查）。
-4. **每周定期同步**：每周一晚组织 15 分钟线上站会，对齐本周里程碑产出与阻塞点。
+3. **冒烟测试再合并**：日常 PR 的合并条件以 `COLLABORATION_WORKFLOW.md` 3.4 三条为准（CI 全绿 + 1 人 Approve + 评论清完）。组长的端到端冒烟（登录 -> 课件上传 -> 提问输出打字机效果 -> 记录可查）是 **Gate 日（每周日集成评审）的义务**，不是每个 PR 的前置条件——否则组长会变成全队的瓶颈。
+4. **每周同步看 Gate**：周一不再有单独的站会——每日站会已迁到任务 Issue 评论区（`COLLABORATION_WORKFLOW.md` 8.2），每周节奏以周日 Gate 评审 + 周三中期集成为准（`THREE_WEEK_PLAN.md` 第六节）。

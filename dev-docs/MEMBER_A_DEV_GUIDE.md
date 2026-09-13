@@ -2,7 +2,7 @@
 
 > **角色**：成员 A（AI / RAG 核心算法工程师 · 后端组长）  
 > **职责模块**：Spring Boot 工程底座、LangChain4j 接入、课件解析与向量化存储、RAG 检索增强、SSE 流式智能答疑接口、知识点结构化生成  
-> **适用技术栈**：Spring Boot 3.x + LangChain4j 0.35+ + Chroma DB / 本地向量库 + 阿里云百炼/DeepSeek API + SSE (Server-Sent Events)
+> **适用技术栈**：Spring Boot 3.3.5（锁定）+ LangChain4j 0.35.0（锁定）+ Chroma DB / 本地向量库 + 阿里云百炼/DeepSeek API + SSE (Server-Sent Events)
 
 ---
 
@@ -81,7 +81,7 @@
         <artifactId>langchain4j-embeddings-bge-small-zh-q</artifactId>
         <version>0.35.0</version>
     </dependency>
-    <!-- Apache Tika (文档智能解析支持 PDF, DOCX, TXT) -->
+    <!-- Apache Tika (文档智能解析；底层虽支持 DOCX 等格式，但上传白名单只有 PDF/Markdown/TXT，见本指南第一章第 2 条) -->
     <dependency>
         <groupId>dev.langchain4j</groupId>
         <artifactId>langchain4j-document-parser-apache-tika</artifactId>

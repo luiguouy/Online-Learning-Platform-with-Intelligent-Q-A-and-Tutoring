@@ -2,7 +2,7 @@
 
 > **角色**：成员 D（教师后台工程师 · 前端工程师 · 答辩统筹）  
 > **职责模块**：教师端管理后台、课件上传与切块状态监控、问答记录查看、答辩演练与工程文档统筹  
-> **适用技术栈**：Vue 3 + Vite + TypeScript + Element Plus + Axios + Pinia
+> **适用技术栈**：Vue 3 + Vite + TypeScript + Element Plus + Axios（教师端两个页面都是"拉列表 + 展示"，无跨页共享状态，**不使用 Pinia**，见第二节依赖清单）
 
 ---
 
@@ -60,6 +60,8 @@ src/views/teacher/
 ---
 
 ## 四、 核心功能代码实现指南
+
+> ⚠️ **样式说明**：本文件示例代码里的 `text-slate-500`、`p-6`、`rounded` 这类工具类只是示意排版效果，**项目并未安装 Tailwind CSS**（依赖红线，见第二节）。实现时用 `<style scoped>` 写普通 CSS 或直接用 Element Plus 组件属性达到同样效果即可，**不要为几行示例去装 Tailwind**。
 
 ### 4.1 课件拖拽上传与切块状态监控 (`CourseDocManage.vue`)
 ```vue
