@@ -7,10 +7,24 @@
           上传 PDF / Markdown 课件，系统将自动调用 LangChain4j 进行智能解析、切块与向量嵌入
         </p>
       </div>
-      <el-button type="primary" :icon="Upload" :disabled="currentCourseId === null" @click="openUpload">
-        上传新课件资料
-      </el-button>
+      <div class="page-actions">
+        <el-button :icon="Refresh" :loading="loading" @click="refreshManually">刷新</el-button>
+        <el-button type="primary" :icon="Upload" :disabled="currentCourseId === null" @click="openUpload">
+          上传新课件资料
+        </el-button>
+      </div>
     </div>
+
+    <!-- Q17：普通课件 5~20 秒，大课件可能 1~2 分钟；超过上限后停止自动轮询，转为手动刷新兜底 -->
+    <el-alert
+      v-if="pollExpired"
+      class="poll-alert"
+      type="warning"
+      show-icon
+      :closable="false"
+      title="已停止自动刷新（切块超过 2 分钟）"
+      description="课件仍在后台切块中，请点「刷新」查看最新状态。"
+    />
 
     <el-table v-loading="loading" :data="docList" stripe border class="doc-table">
       <el-table-column prop="id" label="ID" width="80" />
@@ -53,11 +67,13 @@
  *
  * 状态机四态 PENDING / PARSING / CHUNKED / FAILED 命名已冻结，禁止别名
  * （DEV_SPECIFICATION.md 4.2）。
- * 轮询：仅当列表中存在未完成的课件时才 3 秒轮询一次（D2.2 要求，此处提前落地骨架）。
+ * 轮询：仅当列表中存在未完成的课件时才 3 秒轮询一次（D2.2）。
+ * Q17 兜底：单轮自动轮询最长 2 分钟（普通课件 5~20 秒，大课件 1~2 分钟），
+ * 超时即停止并展示提示条，改由页面「刷新」按钮手动兜底。
  */
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
-import { Upload } from '@element-plus/icons-vue';
+import { Refresh, Upload } from '@element-plus/icons-vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 
 import { deleteDoc, fetchDocList } from '@/api/teacher';
@@ -67,6 +83,8 @@ import type { CourseDoc } from '@/types';
 
 /** 轮询间隔固定 3 秒 */
 const POLL_INTERVAL_MS = 3000;
+/** Q17：单轮自动轮询的上限 2 分钟，超过则停止自动刷新，改为手动兜底 */
+const POLL_MAX_DURATION_MS = 120_000;
 
 const courseStore = useCourseStore();
 const { currentCourseId } = storeToRefs(courseStore);
@@ -76,6 +94,10 @@ const loading = ref(false);
 const uploadDialogVisible = ref(false);
 
 let pollTimer: number | null = null;
+/** 本轮自动轮询的截止时间戳 */
+let pollDeadline = 0;
+/** 是否已因超时停止自动轮询（用于渲染提示条） */
+const pollExpired = ref(false);
 
 const hasPendingTask = computed(() =>
   docList.value.some(
@@ -98,18 +120,47 @@ async function loadDocs(): Promise<void> {
   }
 }
 
-/** 只在存在未完成课件时轮询，避免无意义的空转请求 */
+/** 启动自动轮询，并重置本轮 2 分钟计时窗口 */
+function startPolling(): void {
+  if (pollTimer !== null) return;
+  pollDeadline = Date.now() + POLL_MAX_DURATION_MS;
+  pollExpired.value = false;
+  pollTimer = window.setInterval(loadDocs, POLL_INTERVAL_MS);
+}
+
+function stopPolling(): void {
+  if (pollTimer === null) return;
+  window.clearInterval(pollTimer);
+  pollTimer = null;
+}
+
+/**
+ * 只在存在未完成课件时轮询，避免无意义的空转请求。
+ * Q17：超过 2 分钟仍未就绪 → 停止自动轮询并置 pollExpired，交给手动刷新兜底。
+ */
 function syncPolling(): void {
-  if (hasPendingTask.value) {
-    if (pollTimer === null) {
-      pollTimer = window.setInterval(loadDocs, POLL_INTERVAL_MS);
-    }
+  if (!hasPendingTask.value) {
+    stopPolling();
+    pollExpired.value = false;
     return;
   }
-  if (pollTimer !== null) {
-    window.clearInterval(pollTimer);
-    pollTimer = null;
+
+  if (pollTimer !== null && Date.now() >= pollDeadline) {
+    stopPolling();
+    pollExpired.value = true;
+    ElMessage.warning('切块耗时超过 2 分钟，已停止自动刷新，请点「刷新」查看最新状态');
+    return;
   }
+
+  if (pollTimer === null && !pollExpired.value) {
+    startPolling();
+  }
+}
+
+/** 手动刷新：重置 2 分钟窗口后重新拉取列表 */
+async function refreshManually(): Promise<void> {
+  pollExpired.value = false;
+  await loadDocs();
 }
 
 function openUpload(): void {
@@ -117,7 +168,8 @@ function openUpload(): void {
 }
 
 function handleUploaded(): void {
-  loadDocs();
+  // 上传成功后必须重置窗口，否则超时状态会一直挡住自动轮询
+  void refreshManually();
 }
 
 /** 删除课件：后端会同步级联清除该课件在 Chroma 中的全部向量切片 */
@@ -143,10 +195,7 @@ async function handleDelete(id: number): Promise<void> {
 watch(currentCourseId, () => loadDocs(), { immediate: true });
 
 onUnmounted(() => {
-  if (pollTimer !== null) {
-    window.clearInterval(pollTimer);
-    pollTimer = null;
-  }
+  stopPolling();
 });
 </script>
 
@@ -164,6 +213,12 @@ onUnmounted(() => {
   margin-bottom: 18px;
 }
 
+.page-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 10px;
+}
+
 .page-title {
   margin: 0;
   font-size: 17px;
@@ -175,6 +230,10 @@ onUnmounted(() => {
   margin: 6px 0 0;
   font-size: 12px;
   color: var(--app-text-muted);
+}
+
+.poll-alert {
+  margin-bottom: 14px;
 }
 
 .doc-table {
