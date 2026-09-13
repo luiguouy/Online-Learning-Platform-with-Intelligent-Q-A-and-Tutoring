@@ -1,0 +1,10 @@
+# SseWiringIntegrationTest 测试环境：
+# - Chroma 显式禁用 -> LangChain4jConfig 自动降级 InMemoryEmbeddingStore（进程内，零外部依赖）
+# - LLM 由测试内 @MockitoBean 替换为假流式模型，无需真实 API Key
+# - MySQL 使用 application.yml 默认本地连接（smart_qa 库，需先执行 schema.sql + data.sql）
+rag:
+  chroma:
+    base-url: DISABLED
+  chunk:
+    # 覆盖主配置的 4，保证单课件测试的 references 恰为 1 条，事件序列可精确断言
+    top-k: 1
