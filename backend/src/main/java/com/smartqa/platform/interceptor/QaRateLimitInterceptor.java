@@ -76,12 +76,21 @@ public class QaRateLimitInterceptor implements HandlerInterceptor {
 
     /**
      * 直接向响应体写统一 JSON（拦截器阶段 GlobalExceptionHandler 尚未介入，
-     * 必须自己保证 body 结构是 {@code {code, message}}）。
+     * 必须自己保证 body 结构与全局 {@code Result} 一致：{@code {code, message, data}}）。
+     *
+     * <p><b>HTTP 状态码固定 200</b>：全项目契约是「传输层恒 200，业务码只放 body」，
+     * 此处若返回真实 401/429，前端（成员 C）按 body 取 {@code code} 的解析逻辑
+     * 会被网络层的错误分支抢先打断。业务码仍写在 body 的 {@code code} 字段。</p>
+     *
+     * <p>字段与顺序同 {@code Result} 一致（code / message / data / timestamp），
+     * 使前端能用同一套解包逻辑处理拦截器响应与业务响应。</p>
      */
     private void writeJson(HttpServletResponse response, int code, String message) throws Exception {
-        response.setStatus(code);
+        response.setStatus(HttpServletResponse.SC_OK);
         response.setContentType("application/json;charset=UTF-8");
-        response.getWriter().write("{\"code\":" + code + ",\"message\":\"" + message + "\"}");
+        response.getWriter().write("{\"code\":" + code
+                + ",\"message\":\"" + message
+                + "\",\"data\":null,\"timestamp\":" + System.currentTimeMillis() + "}");
     }
 
     /** 单用户固定窗口：窗口起点 + 窗口内计数 */

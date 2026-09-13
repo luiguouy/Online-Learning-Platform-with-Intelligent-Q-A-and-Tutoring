@@ -11,7 +11,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -33,7 +32,8 @@ public class AuthController {
 
     private final SysUserService userService;
 
-    private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
+    /** 由 {@link com.smartqa.platform.config.PasswordEncoderConfig} 提供，便于调整强度或替换算法 */
+    private final PasswordEncoder passwordEncoder;
 
     @PostMapping("/login")
     @Operation(summary = "用户登录（学生/教师统一入口）")
