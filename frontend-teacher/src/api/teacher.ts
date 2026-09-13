@@ -8,7 +8,11 @@ import type { CourseDoc } from '@/types';
  * 路径与 DEV_SPECIFICATION.md / TEAM_WORK_DIVISION.md 接口矩阵逐字符一致，禁止改写。
  */
 
-/** 课件列表：GET /api/teacher/docs/list?courseId= */
+/**
+ * 课件列表：GET /api/teacher/docs/list?courseId=
+ * TODO(Q8)：当前按「裸数组」处理；若成员 B 确认返回分页对象 `{ records, total }`，
+ * 此处需改为取 `res.records`，调用方（CourseDocManage.vue）同步调整。
+ */
 export async function fetchDocList(courseId: number): Promise<CourseDoc[]> {
   if (USE_MOCK) {
     return mockListDocs(courseId);

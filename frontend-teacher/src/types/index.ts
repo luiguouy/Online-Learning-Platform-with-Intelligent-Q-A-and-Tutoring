@@ -34,7 +34,11 @@ export interface CourseDoc {
   errorMsg?: string;
 }
 
-/** 登录返回（token / role 字段名待成员 B 的 Knife4j 文档最终确认） */
+/**
+ * 登录返回
+ * TODO(Q7)：字段名最终以成员 B 的 Knife4j 文档为准；当前依 `MEMBER_B_DEV_GUIDE.md`
+ * 4.2 的 LoginVO（token / userId / username / nickname / role / avatarUrl）。
+ */
 export interface LoginResult {
   token: string;
   role: UserRole;
