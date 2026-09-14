@@ -10,7 +10,7 @@
       <div class="course-switch">
         <el-select
           v-model="courseStore.currentCourseId"
-          :loading="courseStore.courses.length === 0"
+          :loading="loadingCourses"
           placeholder="请选择课程"
           class="course-select"
           @change="handleCourseChange"
@@ -76,7 +76,7 @@
  * 数据来源：Week 1 走 Mock（src/config/index.ts 的 USE_MOCK）。
  * 说明：右侧「课件出处溯源抽屉」属 C2.3，本周不实现。
  */
-import { onMounted } from 'vue';
+import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { Plus } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
@@ -91,21 +91,47 @@ const userStore = useUserStore();
 const courseStore = useCourseStore();
 const chatStore = useChatStore();
 
+/**
+ * 课程下拉框自身的加载态。
+ * 不复用 `courses.length === 0`：课程列表为空既可能是「还在加载」，也可能是
+ * 「加载失败/确实没有课程」，两者靠数组长度无法区分，失败时下拉框会永久转圈。
+ */
+const loadingCourses = ref(true);
+
 /** 会话时间只显示到分钟，后端返回 ISO 字符串（如 2026-09-12T20:31:05） */
 function formatTime(value: string): string {
   if (!value) return '';
   return value.replace('T', ' ').slice(5, 16);
 }
 
+/**
+ * 拉课程列表 + 首个课程的历史会话。
+ *
+ * 失败兜底（PR #35 评审意见）：`onMounted` 里的 `void loadCourseAndSessions()` 会吞掉
+ * rejection，两个 await 任一失败都成为 unhandled rejection —— `USE_MOCK=false`（C2.4 联调）
+ * 后 `listCourses()` 返回非 200 即触发。这里 catch 住并让 loading 态落地；
+ * request.ts 响应拦截器已统一弹过 ElMessage，无需重复提示。
+ * 注：`chatStore.loadSessions` 内部已有 finally 复位 `loadingSessions`，catch 里不重复处理。
+ */
 async function loadCourseAndSessions(): Promise<void> {
-  courseStore.setCourses(await listCourses());
-  await chatStore.loadSessions(courseStore.currentCourseId);
+  try {
+    courseStore.setCourses(await listCourses());
+    await chatStore.loadSessions(courseStore.currentCourseId);
+  } catch {
+    courseStore.setCourses([]);
+  } finally {
+    loadingCourses.value = false;
+  }
 }
 
 /** 切换课程 → 重新拉该课程的历史会话（换课程不串会话） */
 async function handleCourseChange(courseId: number): Promise<void> {
   courseStore.selectCourse(courseId);
-  await chatStore.loadSessions(courseId);
+  try {
+    await chatStore.loadSessions(courseId);
+  } catch {
+    // 同上：拦截器已提示，此处仅保证不产生 unhandled rejection
+  }
 }
 
 /** 新建会话：本地清空展示，首次提问时 sessionId 传 0 由后端懒创建（契约 4.2） */
@@ -116,7 +142,11 @@ function handleNewChat(): void {
 }
 
 async function handleSelectSession(sessionId: number): Promise<void> {
-  await chatStore.selectSession(sessionId);
+  try {
+    await chatStore.selectSession(sessionId);
+  } catch {
+    // 同上：拦截器已提示，此处仅保证不产生 unhandled rejection
+  }
   void router.push('/student/chat');
 }
 
