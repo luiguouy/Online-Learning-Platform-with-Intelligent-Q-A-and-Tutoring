@@ -1,0 +1,33 @@
+{
+  "name": "smart-qa-student-client",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "AI 驱动的在线学习智能答疑辅导平台 - 学生端问答工作台（成员 C）",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.1",
+    "@microsoft/fetch-event-source": "^2.0.1",
+    "axios": "^1.6.8",
+    "dompurify": "^3.0.9",
+    "element-plus": "^2.6.1",
+    "highlight.js": "^11.9.0",
+    "markdown-it": "^14.1.0",
+    "pinia": "^2.1.7",
+    "vue": "^3.4.21",
+    "vue-router": "^4.3.0"
+  },
+  "devDependencies": {
+    "@types/dompurify": "^3.0.5",
+    "@types/markdown-it": "^13.0.7",
+    "@vitejs/plugin-vue": "^5.0.4",
+    "typescript": "^5.2.2",
+    "vite": "^5.1.6",
+    "vue-tsc": "^2.0.6"
+  }
+}
