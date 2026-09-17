@@ -18,8 +18,25 @@
 | D1.4 | 课件上传界面（拖拽 + 进度条，先 Mock） | 完成 | 能选择文件并显示进度（不真正上传） | `DocUploadModal.vue` Mock 通道本地模拟进度 0→100% |
 | D1.5 | 准备 3~5 篇测试课件 PDF | 完成 | 放入共享盘，全员可取 | 4 篇 PDF 共 26.4 KB，中文文本可提取（保留在本地 `项目/D/test-courseware/`，**不入库**，改为发群共享） |
 
-> **Day 1 下午追加：落实组长 A 对 Q1 / Q17 的拍板**
-> - **Q1 已落地**：工程迁入 Monorepo 的 `frontend-teacher/` 子目录（27 个文件），`ci.yml` 新增 `frontend-teacher` 门禁 job。验证：`npm ci`（99 packages）→ `npx vue-tsc --noEmit` 退出码 0 → `npm run build` ✓ 1685 modules / 9.19s，退出码 0。
+## 一·二、第 2 周进度（Day 8~14）
+
+| 编号 | 任务 | 状态 | 验收标准 | 证据 |
+| :--- | :--- | :--- | :--- | :--- |
+| D2.1 | 对接真实上传/列表/删除接口（Issue #21） | 完成 | 真实 PDF 上传后端收到并触发切块；删除后列表消失 | 见下方「D2.1 联调实测」 |
+
+> **D2.1（2026-09-17）：解除 Mock，接口结构按 Q7~Q13 定稿**（依据 `dev-docs/mock/B回复-接口确认单(Q7-Q13).md`）
+> - `USE_MOCK = false`；删除 `src/mock/` 整目录；Mock 分支从 `api/auth.ts`、`api/course.ts`、`api/teacher.ts`、`DocUploadModal.vue`、`LoginView.vue` 全部移除
+> - `types/index.ts`：`LoginResult` 补 `username` / `avatarUrl`；`CourseDoc` 补 `courseId` / `fileSize` / `updatedAt`；**故意不声明 `filePath` 与 `isDeleted`**（Q8：`filePath` 属信息暴露点、前端不展示）
+> - 静态验证：`npx vue-tsc --noEmit` 退出码 0；`npm run build` 退出码 0（✓ built in 7.34s）
+> - **联调实测**（本机后端 `http://localhost:8080`，种子账号 teacher01）：
+>   1. `POST /api/auth/login` → 200，六字段 `token/userId/username/nickname/role/avatarUrl`（与 Q7 一致）
+>   2. `GET /api/teacher/docs/list?courseId=1` → 200，**裸数组**；字段含 `filePath`/`isDeleted`（前端不声明不展示）；`errorMsg` 为空串
+>   3. `POST /api/teacher/docs/upload`（courseId=1 + 真实 PDF）→ 200，`data` = 新 docId
+>   4. 上传后立刻拉列表 → `PARSING`；约 12 秒后 → `CHUNKED`（`chunkCount=6`）
+>   5. `DELETE /api/teacher/docs/{id}` → 200，`data=true`，列表回到原状
+> - 该链路**不需要 LLM API Key**：切块用内置 BGE-Small-ZH 本地向量模型，Chroma 未启动时自动降级内存存储（`application.yml` 63-64 行）
+
+> **Day 1 下午追加：落实组长 A 对 Q1 / Q17 的拍板**> - **Q1 已落地**：工程迁入 Monorepo 的 `frontend-teacher/` 子目录（27 个文件），`ci.yml` 新增 `frontend-teacher` 门禁 job。验证：`npm ci`（99 packages）→ `npx vue-tsc --noEmit` 退出码 0 → `npm run build` ✓ 1685 modules / 9.19s，退出码 0。
 > - **Q17 已落地**：`CourseDocManage.vue` 加轮询兜底——3 秒轮询 + **最长 2 分钟自动停** + 页面「刷新」按钮（手动刷新与上传成功都会重置 2 分钟窗口），超时展示 `el-alert` 告示条。
 > - **Q7~Q13 待成员 B**：已在 `src/types/index.ts`、`src/api/teacher.ts` 标 `TODO` 注明当前口径，不阻塞本周。
 
