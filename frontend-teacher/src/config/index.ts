@@ -1,10 +1,10 @@
 /**
  * 全局开关
  *
- * Week 1（D1.3 / D1.4）阶段：成员 B 的登录接口（B1.4，Day 3）与课件上传接口（B2.1，Day 9）
- * 均未就绪，前端按 MEMBER_D_DEV_GUIDE.md 要求"先 Mock"开发。
+ * D2.1（2026-09-17）：成员 B 的登录 / 课程 / 课件上传-列表-删除接口均已就绪，
+ * 本开关按清理清单置为 false；`src/mock/` 整个目录已删除，所有 Mock 分支
+ * 已从 api/ 与页面中移除（见 PR 说明）。
  *
- * D2.1 对接真实接口时：把 USE_MOCK 改为 false，并删除 src/mock/ 整个目录。
- * 严禁在交付版本中保留 USE_MOCK = true（正式代码中不得残留任何假数据）。
+ * ⚠️ 交付版本中**严禁**再置回 true；正式代码不得残留任何假数据。
  */
-export const USE_MOCK = true;
+export const USE_MOCK = false;
