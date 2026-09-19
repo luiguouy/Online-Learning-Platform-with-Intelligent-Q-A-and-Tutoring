@@ -45,6 +45,19 @@ public class CourseDocumentServiceImpl extends ServiceImpl<CourseDocumentMapper,
     }
 
     @Override
+    public boolean markParsingIfSettled(Long docId) {
+        // 条件更新：只有当前状态为 CHUNKED / FAILED 时才置为 PARSING，
+        // 并发重建时事二更新影响 0 行 → update() 返回 false，据此拒绝。
+        return update(Wrappers.<CourseDocument>lambdaUpdate()
+                .set(CourseDocument::getParseStatus, CourseDocument.STATUS_PARSING)
+                .set(CourseDocument::getChunkCount, 0)
+                .set(CourseDocument::getErrorMsg, "")
+                .eq(CourseDocument::getId, docId)
+                .in(CourseDocument::getParseStatus,
+                        CourseDocument.STATUS_CHUNKED, CourseDocument.STATUS_FAILED));
+    }
+
+    @Override
     public void markChunked(Long docId, int chunkCount) {
         CourseDocument update = CourseDocument.builder()
                 .id(docId)
