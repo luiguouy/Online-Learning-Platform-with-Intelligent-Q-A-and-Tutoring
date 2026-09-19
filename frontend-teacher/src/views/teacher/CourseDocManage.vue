@@ -46,8 +46,18 @@
         </template>
       </el-table-column>
       <el-table-column prop="createdAt" label="上传时间" width="180" />
-      <el-table-column label="操作" width="100" fixed="right">
+      <el-table-column label="操作" width="170" fixed="right">
         <template #default="{ row }">
+          <!-- 后端 reindex 无状态机守卫，对 PARSING/PENDING 中的课件再点会并发两次切块产生重复切片，故禁用 -->
+          <el-button
+            link
+            type="primary"
+            size="small"
+            :disabled="row.parseStatus === 'PARSING' || row.parseStatus === 'PENDING'"
+            @click="handleReindex(row)"
+          >
+            重建索引
+          </el-button>
           <el-button link type="danger" size="small" @click="handleDelete(row.id)">删除</el-button>
         </template>
       </el-table-column>
@@ -63,20 +73,21 @@
 
 <script setup lang="ts">
 /**
- * 课件管理页（D1.3 表格 + Mock 渲染；D1.4 上传入口）
+ * 课件管理页（D1.3 表格 + D1.4 上传入口；D2.1 起走真实接口）
  *
  * 状态机四态 PENDING / PARSING / CHUNKED / FAILED 命名已冻结，禁止别名
  * （DEV_SPECIFICATION.md 4.2）。
  * 轮询：仅当列表中存在未完成的课件时才 3 秒轮询一次（D2.2）。
  * Q17 兜底：单轮自动轮询最长 2 分钟（普通课件 5~20 秒，大课件 1~2 分钟），
  * 超时即停止并展示提示条，改由页面「刷新」按钮手动兜底。
+ * D2.4：操作列「重建索引」→ 后端清旧向量并异步重切块（状态回 PARSING），由上述轮询接管。
  */
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { Refresh, Upload } from '@element-plus/icons-vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 
-import { deleteDoc, fetchDocList } from '@/api/teacher';
+import { deleteDoc, fetchDocList, reindexDoc } from '@/api/teacher';
 import { useCourseStore } from '@/stores/course';
 import DocUploadModal from './components/DocUploadModal.vue';
 import type { CourseDoc } from '@/types';
@@ -94,6 +105,8 @@ const loading = ref(false);
 const uploadDialogVisible = ref(false);
 
 let pollTimer: number | null = null;
+/** 组件是否已卸载：卸载后在途轮询请求回来后不得再重新拉起 interval */
+let unmounted = false;
 /** 本轮自动轮询的截止时间戳 */
 let pollDeadline = 0;
 /** 是否已因超时停止自动轮询（用于渲染提示条） */
@@ -127,7 +140,7 @@ async function loadDocs(silent = false): Promise<void> {
 
 /** 启动自动轮询，并重置本轮 2 分钟计时窗口 */
 function startPolling(): void {
-  if (pollTimer !== null) return;
+  if (unmounted || pollTimer !== null) return;
   pollDeadline = Date.now() + POLL_MAX_DURATION_MS;
   pollExpired.value = false;
   pollTimer = window.setInterval(() => void loadDocs(true), POLL_INTERVAL_MS);
@@ -177,6 +190,31 @@ function handleUploaded(): void {
   void refreshManually();
 }
 
+/**
+ * 重建索引（D2.4）：后端先清旧向量再**异步**重新切块，接口返回 true 只代表任务已受理。
+ * 必须走 refreshManually() 重置 2 分钟轮询窗口 —— 否则若此前已 pollExpired，
+ * 新任务不会被自动轮询捕捉（与上传成功后的处理同理）。
+ */
+async function handleReindex(row: CourseDoc): Promise<void> {
+  try {
+    await ElMessageBox.confirm(
+      `将清除「${row.fileName}」的现有向量切片并重新切块，期间该课件暂时检索不到，确定继续？`,
+      '确认重建索引',
+      { type: 'warning' },
+    );
+  } catch {
+    return;
+  }
+
+  try {
+    await reindexDoc(row.id);
+    ElMessage.success('已提交重建索引，正在重新切块…');
+    await refreshManually();
+  } catch {
+    ElMessage.error('重建索引失败');
+  }
+}
+
 /** 删除课件：后端会同步级联清除该课件在 Chroma 中的全部向量切片 */
 async function handleDelete(id: number): Promise<void> {
   try {
@@ -200,6 +238,7 @@ async function handleDelete(id: number): Promise<void> {
 watch(currentCourseId, () => loadDocs(), { immediate: true });
 
 onUnmounted(() => {
+  unmounted = true;
   stopPolling();
 });
 </script>

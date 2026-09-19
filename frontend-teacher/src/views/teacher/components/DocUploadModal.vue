@@ -36,21 +36,18 @@
 
 <script setup lang="ts">
 /**
- * 课件拖拽上传弹窗（D1.4）
+ * 课件拖拽上传弹窗（D1.4 建立，D2.1 起走真实接口）
  *
- * 两种通道：
- * - Mock 阶段（Week 1）：不真正请求后端，仅本地模拟进度与状态流转
- * - 真实阶段（D2.1 起）：走 action + Authorization 头
+ * 上传通道：`action` + 手动补鉴权头
  *   ⚠️ el-upload 使用自身上传通道，不经过 axios 拦截器，因此必须手动补鉴权头，
  *      且头值必须带 "Bearer " 前缀（DEV_SPECIFICATION.md 4.2）
+ *   ⚠️ 表单字段名：courseId + file（`file` 是 el-upload 默认字段名，无需配置，Q9 已确认）
+ *   ⚠️ 后端返回 `Result<Long>` = 新建 docId，**不回传完整课件对象** → 上传成功后由父组件重拉列表
  */
 import { computed, ref } from 'vue';
 import { UploadFilled } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
-import type { UploadProgressEvent, UploadProps, UploadRequestOptions } from 'element-plus';
-
-import { USE_MOCK } from '@/config';
-import { mockCreateDoc } from '@/mock/teacherDocs';
+import type { UploadProgressEvent, UploadProps } from 'element-plus';
 
 /** 上传接口路径（成员 B 提供，禁止改写） */
 const UPLOAD_ACTION = '/api/teacher/docs/upload';
@@ -82,33 +79,11 @@ const progressStatus = computed<'success' | undefined>(() =>
   uploadPercent.value >= 100 ? 'success' : undefined,
 );
 
-/** Mock 上传：仅本地模拟进度，完成后写入 Mock 数据（PARSING → 由 Mock 模块自动转 CHUNKED） */
-const mockUpload = (options: UploadRequestOptions): Promise<void> =>
-  new Promise<void>((resolve) => {
-    uploadPercent.value = 0;
-    const timer = window.setInterval(() => {
-      uploadPercent.value = Math.min(100, uploadPercent.value + 10);
-      if (uploadPercent.value < 100) return;
-
-      window.clearInterval(timer);
-      if (props.courseId !== null && currentFileName.value) {
-        mockCreateDoc(props.courseId, currentFileName.value);
-      }
-      options.onSuccess({ code: 200, message: 'Mock 上传成功' });
-      resolve();
-    }, 120);
-  });
-
-const uploadBindings = computed<Partial<UploadProps>>(() => {
-  if (USE_MOCK) {
-    return { httpRequest: mockUpload };
-  }
-  return {
-    action: UPLOAD_ACTION,
-    headers: uploadHeaders.value,
-    data: { courseId: props.courseId ?? 0 },
-  };
-});
+const uploadBindings = computed<Partial<UploadProps>>(() => ({
+  action: UPLOAD_ACTION,
+  headers: uploadHeaders.value,
+  data: { courseId: props.courseId ?? 0 },
+}));
 
 function beforeUpload(file: File): boolean {
   const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
