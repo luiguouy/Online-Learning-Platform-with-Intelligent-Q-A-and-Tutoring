@@ -5,8 +5,11 @@ import com.smartqa.platform.service.rag.SseStreamService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
+import java.util.concurrent.RejectedExecutionException;
 
 /**
  * SSE 流式问答接口（A1.5）
@@ -24,6 +27,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @Tag(name = "智能问答", description = "RAG 流式问答接口（SSE）")
 @RestController
 @RequestMapping("/api/qa")
+@Slf4j
 public class SseChatController {
 
     private final SseStreamService sseStreamService;
@@ -60,8 +64,21 @@ public class SseChatController {
         // 超时时间 120 秒（与 application.yml rag.llm.timeout-seconds 保持裕量）
         SseEmitter emitter = new SseEmitter(120_000L);
 
-        // 在异步线程池中执行 RAG 检索 + 流式推送，避免阻塞 Tomcat 工作线程
-        sseStreamService.streamChat(emitter, userId, courseId, question, sessionId);
+        // 在异步线程池中执行 RAG 检索 + 流式推送，避免阻塞 Tomcat 工作线程。
+        // sseExecutor 采用 AbortPolicy：队列+线程打满时 @Async 提交会抛 TaskRejectedException，
+        // 这里捕获后立刻给客户端下发 error 事件并结束，而不是拖占 Tomcat 线程（防级联 DoS）。
+        try {
+            sseStreamService.streamChat(emitter, userId, courseId, question, sessionId);
+        } catch (RejectedExecutionException e) {
+            log.warn("[SSE] 问答线程池饱和，拒绝请求 userId={}, courseId={}", userId, courseId);
+            try {
+                emitter.send(SseEmitter.event().name("error")
+                        .data("{\"errorCode\":5003,\"message\":\"服务繁忙，请稍后重试\"}"));
+                emitter.complete();
+            } catch (Exception ignore) {
+                // 客户端已断开时忽略下发失败
+            }
+        }
 
         return emitter;
     }

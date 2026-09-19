@@ -29,6 +29,7 @@ import java.io.InputStream;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.regex.Pattern;
 
 /**
@@ -56,8 +57,8 @@ public class TeacherDocumentController {
     private final CourseService courseService;
     private final DocumentIngestionService ingestionService;
 
-    /** 专用线程池（AsyncThreadPoolConfig 中定义），禁止使用默认公共池 */
-    @Resource(name = "sseExecutor")
+    /** 课件切块专用线程池（AsyncThreadPoolConfig 中定义，与 SSE 问答流隔离），禁止使用默认公共池 */
+    @Resource(name = "ingestExecutor")
     private Executor asyncExecutor;
 
     /** 绝对上传目录，如 ${user.home}/smartqa/uploads/ —— 严禁相对路径 */
@@ -157,11 +158,14 @@ public class TeacherDocumentController {
         }
         courseService.assertTeacherOwnsCourse(doc.getCourseId(), teacherId);
 
-        // 1. 先清旧向量，否则重建会产生重复切片
-        ingestionService.removeDocumentVectors(id);
+        // 1. 状态 CAS：仅当课件处于终态(CHUNKED/FAILED)才允许重建。抢到锁才继续，
+        //    避免对“解析中”课件并发重复提交切块，也避免“删旧向量”与“在途写入”交错产生重复/幽灵切片。
+        if (!docService.markParsingIfSettled(id)) {
+            throw new BusinessException(409, "课件正在解析中或状态已变化，暂不能重建索引");
+        }
 
-        // 2. 状态回到 PARSING，分块数与上次失败原因清零
-        docService.markParsing(id);
+        // 2. 再清旧向量，否则重建会产生重复切片（CAS 已成功，此刻无其他在途切块）
+        ingestionService.removeDocumentVectors(id);
 
         // 3. 异步重新切块
         submitIngestion(id, doc.getCourseId(), doc.getFileName(), doc.getFilePath(), teacherId);
@@ -177,15 +181,22 @@ public class TeacherDocumentController {
      */
     private void submitIngestion(Long docId, Long courseId, String fileName,
                                  String filePath, Long uploadedBy) {
-        CompletableFuture.runAsync(() -> {
-            try (InputStream in = new FileInputStream(filePath)) {
-                int chunks = ingestionService.ingest(in, fileName, courseId, docId, uploadedBy);
-                docService.markChunked(docId, chunks);
-            } catch (Exception e) {
-                log.error("课件切块向量化失败, docId={}, fileName={}", docId, fileName, e);
-                docService.markFailed(docId, e.getMessage());
-            }
-        }, asyncExecutor);
+        try {
+            CompletableFuture.runAsync(() -> {
+                try (InputStream in = new FileInputStream(filePath)) {
+                    int chunks = ingestionService.ingest(in, fileName, courseId, docId, uploadedBy);
+                    docService.markChunked(docId, chunks);
+                } catch (Exception e) {
+                    log.error("课件切块向量化失败, docId={}, fileName={}", docId, fileName, e);
+                    docService.markFailed(docId, e.getMessage());
+                }
+            }, asyncExecutor);
+        } catch (RejectedExecutionException e) {
+            // ingestExecutor 采用 AbortPolicy：切块池打满时直接拒绝。这里兜住并把状态置为 FAILED，
+            // 否则课件会永远卡在 PARSING（状态回写由异步任务负责，而任务根本没提交成功）。
+            log.error("切块线程池饱和，拒绝入库 docId={}, fileName={}", docId, fileName, e);
+            docService.markFailed(docId, "系统繁忙，切块任务队列已满，请稍后重新上传或重建索引");
+        }
     }
 
     /** 取小写扩展名（已通过白名单校验，不会为 null） */
