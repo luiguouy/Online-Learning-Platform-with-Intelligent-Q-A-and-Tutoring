@@ -112,6 +112,13 @@ const refsVisible = ref(false);
 const currentRefs = ref<SseReference[]>([]);
 
 /**
+ * 请求序号（stale-guard）：切换课程/搜索/翻页共用同一个 records，慢网络下
+ * 旧响应可能晚于新响应返回并覆盖它（顶栏是 B 课、表格却是 A 课记录）。
+ * 每次请求自增序号，回包时若不是最新序号则丢弃。
+ */
+let reqSeq = 0;
+
+/**
  * 参考出处解析。
  * 后端 `groundingReferences` 实测为**数组**（已由 JacksonTypeHandler 反序列化），
  * string 分支仅作兼容保护 —— Q7~Q13 已确认不会命中。
@@ -157,6 +164,7 @@ async function loadRecords(): Promise<void> {
     return;
   }
 
+  const seq = ++reqSeq;
   loading.value = true;
   try {
     const page = await fetchQaRecords({
@@ -165,12 +173,16 @@ async function loadRecords(): Promise<void> {
       pageSize: PAGE_SIZE,
       keyword: keyword.value.trim(),
     });
+    // 已被更新的请求抢占（切课/翻页/搜索），丢弃这份过期响应
+    if (seq !== reqSeq) return;
     records.value = page.records ?? [];
     total.value = page.total ?? 0;
   } catch {
+    if (seq !== reqSeq) return;
     ElMessage.error('问答记录加载失败');
   } finally {
-    loading.value = false;
+    // 只有最新一次请求才负责复位 loading，避免慢请求提前把新请求的 loading 关掉
+    if (seq === reqSeq) loading.value = false;
   }
 }
 

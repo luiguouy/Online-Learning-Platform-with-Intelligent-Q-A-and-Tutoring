@@ -48,7 +48,16 @@
       <el-table-column prop="createdAt" label="上传时间" width="180" />
       <el-table-column label="操作" width="170" fixed="right">
         <template #default="{ row }">
-          <el-button link type="primary" size="small" @click="handleReindex(row)">重建索引</el-button>
+          <!-- 后端 reindex 无状态机守卫，对 PARSING/PENDING 中的课件再点会并发两次切块产生重复切片，故禁用 -->
+          <el-button
+            link
+            type="primary"
+            size="small"
+            :disabled="row.parseStatus === 'PARSING' || row.parseStatus === 'PENDING'"
+            @click="handleReindex(row)"
+          >
+            重建索引
+          </el-button>
           <el-button link type="danger" size="small" @click="handleDelete(row.id)">删除</el-button>
         </template>
       </el-table-column>
@@ -96,6 +105,8 @@ const loading = ref(false);
 const uploadDialogVisible = ref(false);
 
 let pollTimer: number | null = null;
+/** 组件是否已卸载：卸载后在途轮询请求回来后不得再重新拉起 interval */
+let unmounted = false;
 /** 本轮自动轮询的截止时间戳 */
 let pollDeadline = 0;
 /** 是否已因超时停止自动轮询（用于渲染提示条） */
@@ -129,7 +140,7 @@ async function loadDocs(silent = false): Promise<void> {
 
 /** 启动自动轮询，并重置本轮 2 分钟计时窗口 */
 function startPolling(): void {
-  if (pollTimer !== null) return;
+  if (unmounted || pollTimer !== null) return;
   pollDeadline = Date.now() + POLL_MAX_DURATION_MS;
   pollExpired.value = false;
   pollTimer = window.setInterval(() => void loadDocs(true), POLL_INTERVAL_MS);
@@ -227,6 +238,7 @@ async function handleDelete(id: number): Promise<void> {
 watch(currentCourseId, () => loadDocs(), { immediate: true });
 
 onUnmounted(() => {
+  unmounted = true;
   stopPolling();
 });
 </script>
