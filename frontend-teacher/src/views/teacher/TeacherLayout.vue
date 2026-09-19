@@ -53,12 +53,13 @@
 /**
  * 教师端通用布局（D1.2）
  * 结构：左侧菜单 + 顶部面包屑 + 主工作台（MEMBER_D_DEV_GUIDE.md 一）
- * 本期只挂「课件知识库管理」一个菜单；「问答记录查看」在 D2.3 加入。
+ * 菜单：课件知识库管理（D1.3/D1.4）、问答记录查看（D2.3）。
+ * 顶栏课程选择器绑定全局 useCourseStore.currentCourseId，两个子页面共用。
  */
 import { computed, onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useRoute, useRouter } from 'vue-router';
-import { Document } from '@element-plus/icons-vue';
+import { ChatDotRound, Document } from '@element-plus/icons-vue';
 import type { Component } from 'vue';
 
 import { useCourseStore } from '@/stores/course';
@@ -72,6 +73,7 @@ interface MenuItem {
 
 const menus: MenuItem[] = [
   { path: '/teacher/docs', label: '课件知识库管理', icon: Document },
+  { path: '/teacher/qa-records', label: '问答记录查看', icon: ChatDotRound },
 ];
 
 const route = useRoute();

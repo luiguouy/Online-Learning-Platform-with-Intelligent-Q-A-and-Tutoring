@@ -65,3 +65,42 @@ export interface SseReference {
   score: number;
   snippet: string;
 }
+
+/**
+ * 分页结果（MyBatis-Plus IPage 序列化结构）
+ *
+ * 2026-09-19 实测确认：`/api/teacher/qa/records` 的 `data` keys 恰为这五个
+ * （字段名是 `current` 而**不是** `pageNum`）。
+ * ⚠️ 与 `/api/teacher/docs/list` 的**裸数组**结构不同，两个接口不能套同一套解包逻辑。
+ */
+export interface PageResult<T> {
+  records: T[];
+  total: number;
+  size: number;
+  current: number;
+  pages: number;
+}
+
+/**
+ * 问答记录行（对应后端 `QaRecord` 实体，无 VO 中转）
+ *
+ * ⚠️ 后端序列化还会带出 `isDeleted`（逻辑删除标记，恒 0），故意不声明、不展示。
+ * `groundingReferences` 实测为**数组**（后端 JacksonTypeHandler 已反序列化，
+ * 与成员 A 的 SSE references 事件共用 `SseReferenceVO` 契约）；保留 string 分支
+ * 仅作兼容保护，正常不会命中。
+ * `answer` 是 **Markdown 文本**（含 `###`/`**`/列表符号），列表展示前需转纯文本摘要。
+ */
+export interface QaRecord {
+  id: number;
+  sessionId?: number;
+  userId?: number;
+  courseId?: number;
+  question: string;
+  answer: string;
+  groundingReferences?: SseReference[] | string | null;
+  /** 学生打分：1-点赞，-1-点踩，0-未评（后端常量 FEEDBACK_UP / FEEDBACK_DOWN / FEEDBACK_NONE） */
+  feedbackRating?: number;
+  /** 模型生成耗时（毫秒） */
+  latencyMs?: number;
+  createdAt: string;
+}

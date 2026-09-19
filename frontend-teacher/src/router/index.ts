@@ -31,7 +31,12 @@ const router = createRouter({
           component: () => import('@/views/teacher/CourseDocManage.vue'),
           meta: { title: '课件知识库管理' },
         },
-        // D2.3 在此新增「问答记录查看」子路由 /teacher/qa-records
+        {
+          path: 'qa-records',
+          name: 'teacher-qa-records',
+          component: () => import('@/views/teacher/QaRecordList.vue'),
+          meta: { title: '问答记录查看' },
+        },
       ],
     },
     { path: '/', redirect: '/teacher/docs' },

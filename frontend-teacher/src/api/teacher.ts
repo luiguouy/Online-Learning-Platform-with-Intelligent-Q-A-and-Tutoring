@@ -1,5 +1,5 @@
 import request from '@/utils/request';
-import type { CourseDoc } from '@/types';
+import type { CourseDoc, PageResult, QaRecord } from '@/types';
 
 /**
  * 教师端课件接口（成员 B 提供，D 为唯一调用方）
@@ -23,4 +23,40 @@ export async function fetchDocList(courseId: number): Promise<CourseDoc[]> {
 /** 课件删除：DELETE /api/teacher/docs/{id}（后端级联清除该课件在 Chroma 中的向量切片） */
 export async function deleteDoc(id: number): Promise<void> {
   await request.delete<unknown, void>(`/teacher/docs/${id}`);
+}
+
+/**
+ * 重建课件索引：POST /api/teacher/docs/{id}/reindex
+ *
+ * 后端行为（TeacherDocumentController#reindex）：先清旧向量 → 状态置回 `PARSING`
+ * → **异步**重新切块，故返回的 `true` 只代表"任务已受理"。
+ * 前端须靠课件列表的 3 秒轮询捕捉 `PARSING → CHUNKED / FAILED`（D2.2 / D2.4）。
+ */
+export async function reindexDoc(id: number): Promise<boolean> {
+  return request.post<unknown, boolean>(`/teacher/docs/${id}/reindex`);
+}
+
+/**
+ * 问答记录分页查询：GET /api/teacher/qa/records（教师端只读，D2.3）
+ *
+ * ⚠️ 返回 MyBatis-Plus 的 **IPage**（`records` / `total` / `size` / `current` / `pages`），
+ * 与 `fetchDocList` 的**裸数组**不同 —— 2026-09-19 实测确认，勿套同一套解包逻辑。
+ * 后端会校验教师是否任课该课程（越权返回业务异常）。
+ */
+export async function fetchQaRecords(params: {
+  courseId: number;
+  pageNum: number;
+  pageSize: number;
+  keyword?: string;
+}): Promise<PageResult<QaRecord>> {
+  const query: Record<string, unknown> = {
+    courseId: params.courseId,
+    pageNum: params.pageNum,
+    pageSize: params.pageSize,
+  };
+  // 关键词为空时不传该参数，避免后端把空串当作 like '%%' 的额外条件
+  if (params.keyword) {
+    query.keyword = params.keyword;
+  }
+  return request.get<unknown, PageResult<QaRecord>>('/teacher/qa/records', { params: query });
 }
