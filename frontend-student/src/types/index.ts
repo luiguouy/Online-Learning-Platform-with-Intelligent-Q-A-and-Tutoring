@@ -59,10 +59,14 @@ export interface SseErrorPayload {
   message: string;
 }
 
-/** 会话（GET /api/qa/sessions?courseId=） */
+/**
+ * 会话（GET /api/qa/sessions?courseId=）
+ * sessionTitle 字段名与后端 SessionVO 冻结一致（SessionVO.java:33，无 @JsonProperty 别名）；
+ * 切勿写成 title —— 关 Mock 联调后会导致会话标题静默渲染为空。
+ */
 export interface QaSession {
   id: number;
-  title: string;
+  sessionTitle: string;
   createdAt: string;
 }
 

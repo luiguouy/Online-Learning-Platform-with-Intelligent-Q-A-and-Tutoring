@@ -51,7 +51,7 @@
             :class="{ active: session.id === chatStore.currentSessionId }"
             @click="handleSelectSession(session.id)"
           >
-            <div class="session-text">{{ session.title }}</div>
+            <div class="session-text">{{ session.sessionTitle }}</div>
             <div class="session-time">{{ formatTime(session.createdAt) }}</div>
           </li>
         </ul>
@@ -130,7 +130,10 @@ async function handleCourseChange(courseId: number): Promise<void> {
   try {
     await chatStore.loadSessions(courseId);
   } catch {
-    // 同上：拦截器已提示，此处仅保证不产生 unhandled rejection
+    // 拉取失败必须清掉上一课程的会话，否则侧栏仍显示旧课程列表，
+    // 用户点击会用旧 sessionId 拉到另一课程的问答（串会话）。
+    // 拦截器已弹提示，此处不再重复提示。
+    chatStore.clear();
   }
 }
 

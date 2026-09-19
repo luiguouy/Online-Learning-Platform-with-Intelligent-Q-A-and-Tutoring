@@ -9,11 +9,11 @@ import type { QaRecord, QaSession } from '@/types';
 
 const SESSIONS: Record<number, QaSession[]> = {
   1: [
-    { id: 7, title: '虚拟内存分页机制是怎么工作的', createdAt: '2026-09-12T20:31:05' },
-    { id: 6, title: '进程调度算法有哪些区别', createdAt: '2026-09-11T19:02:41' },
-    { id: 5, title: '死锁的四个必要条件', createdAt: '2026-09-10T21:15:18' },
+    { id: 7, sessionTitle: '虚拟内存分页机制是怎么工作的', createdAt: '2026-09-12T20:31:05' },
+    { id: 6, sessionTitle: '进程调度算法有哪些区别', createdAt: '2026-09-11T19:02:41' },
+    { id: 5, sessionTitle: '死锁的四个必要条件', createdAt: '2026-09-10T21:15:18' },
   ],
-  2: [{ id: 4, title: 'TCP 三次握手为什么不是两次', createdAt: '2026-09-09T10:22:33' }],
+  2: [{ id: 4, sessionTitle: 'TCP 三次握手为什么不是两次', createdAt: '2026-09-09T10:22:33' }],
 };
 
 const RECORDS: Record<number, QaRecord[]> = {

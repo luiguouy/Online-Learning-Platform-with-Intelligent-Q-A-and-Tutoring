@@ -18,6 +18,7 @@
  */
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 
+import { useUserStore } from '@/stores/userStore';
 import type { SseDonePayload, SseErrorPayload, SseReference } from '@/types';
 
 /** SSE 接口路径（契约冻结值，加一个字符就是 404） */
@@ -62,7 +63,21 @@ export class SseChatClient {
     const { courseId, question, sessionId = 0, callbacks } = options;
 
     this.stopStream();
-    this.abortController = new AbortController();
+    // 用局部 controller 引用做守卫：重叠调用（连发两次提问）时，被中断的旧请求其
+    // finally 不能把新请求刚装入的 this.abortController 误清空，否则「停止生成」失效、
+    // 新连接泄漏挂到服务端 SSE 超时。
+    const controller = new AbortController();
+    this.abortController = controller;
+
+    // onError 去重：fetch-event-source 的 onerror 抛出后会被 reject 落进外层 catch，
+    // 若两处都回调会导致一次断连弹两条错误、消息被 push 两遍、streaming 标记重复复位。
+    // 用闭包标志保证整次调用只对外通知一次错误。
+    let errorNotified = false;
+    const notifyError = (message: string): void => {
+      if (errorNotified) return;
+      errorNotified = true;
+      callbacks.onError?.({ errorCode: -1, message });
+    };
 
     // token 键名统一 satoken（只是本地存储名，与请求头名无关）
     const token = localStorage.getItem('satoken') ?? '';
@@ -77,9 +92,32 @@ export class SseChatClient {
           Authorization: `Bearer ${token}`,
           Accept: 'text/event-stream',
         },
-        signal: this.abortController.signal,
+        signal: controller.signal,
         // 页面切到后台时不断开流（长回答场景）
         openWhenHidden: true,
+
+        // 自定义 onopen：本项目契约「传输层恒 HTTP 200，业务码只放 body」，未登录(401)
+        // 与限流(429) 都以 content-type=application/json 的 Result 包返回。库默认 onopen
+        // 只做 content-type 断言并抛底层错误，前端无从区分「掉登录」与「被限流」。这里
+        // 主动读 body.code：401 复用与 request.ts 一致的 clearSession() 登出 + 带 redirect 跳登录。
+        async onopen(response) {
+          const contentType = response.headers.get('content-type') ?? '';
+          if (response.ok && contentType.includes('text/event-stream')) {
+            return;
+          }
+          const body = (await response.json().catch(() => null)) as
+            | { code?: number; message?: string }
+            | null;
+          const code = body?.code ?? response.status;
+          if (code === 401) {
+            useUserStore().clearSession();
+            const current = encodeURIComponent(
+              window.location.pathname + window.location.search,
+            );
+            window.location.href = `/login?redirect=${current}`;
+          }
+          throw new Error(body?.message ?? `流式请求失败(${code})`);
+        },
 
         onmessage(msg) {
           // 通过 event 字段区分 4 类事件，全部按 JSON 处理（契约要求）
@@ -103,7 +141,7 @@ export class SseChatClient {
               if (payload) {
                 callbacks.onDone?.(payload);
               } else {
-                callbacks.onError?.({ errorCode: -1, message: 'done 事件载荷解析失败' });
+                notifyError('done 事件载荷解析失败');
               }
               break;
             }
@@ -112,7 +150,7 @@ export class SseChatClient {
                 errorCode: -1,
                 message: msg.data,
               };
-              callbacks.onError?.(payload);
+              notifyError(payload.message);
               break;
             }
             default: {
@@ -123,11 +161,7 @@ export class SseChatClient {
         },
 
         onerror(err) {
-          callbacks.onError?.({
-            errorCode: -1,
-            message: err instanceof Error ? err.message : String(err),
-          });
-          // 必须抛出以阻止库的默认重试（否则断连后会反复重发提问）
+          // 抛出以阻止库默认重试；错误上报统一交给外层 catch 的 notifyError（去重）
           throw err;
         },
 
@@ -141,12 +175,12 @@ export class SseChatClient {
         console.debug('[sseClient] 流式请求已被主动中断');
         return;
       }
-      callbacks.onError?.({
-        errorCode: -1,
-        message: error instanceof Error ? error.message : String(error),
-      });
+      notifyError(error instanceof Error ? error.message : String(error));
     } finally {
-      this.abortController = null;
+      // 只清理属于本次调用的 controller，避免误清新请求的（重叠调用竞态）
+      if (this.abortController === controller) {
+        this.abortController = null;
+      }
     }
   }
 
