@@ -29,7 +29,8 @@ spring:
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    # SQL 日志(log-impl: StdOutImpl)只放在 local profile（见 application-local.yml.example），
+    # 生产/测试环境走默认 Slf4j 且不打印 SQL，避免 StdOut 直刷影响日志采集与性能。
   global-config:
     db-config:
       id-type: auto

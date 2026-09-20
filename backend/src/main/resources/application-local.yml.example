@@ -8,6 +8,11 @@ spring:
     username: root
     password: YOUR_LOCAL_MYSQL_PASSWORD
 
+# 本地开发专用：MyBatis SQL 直接打印到控制台（仅 local profile 生效）
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
 rag:
   llm:
     # 示例 1：使用 DeepSeek 官方 API
