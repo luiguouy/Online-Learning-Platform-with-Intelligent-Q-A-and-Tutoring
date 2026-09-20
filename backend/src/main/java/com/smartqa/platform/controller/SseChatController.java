@@ -47,15 +47,17 @@ public class SseChatController {
      * 提问文本长度上限（字符数，按中文估算）。
      *
      * <p><b>这个值由 Tomcat 的请求行长度上限反推得到，不是随手写的。</b>
-     * 契约把 question 放在 GET query string，实测（二分逼近）本机 Tomcat 10.1 允许的
-     * 请求行上限约 <b>16370 字节</b>，且该上限<b>不受</b>
-     * {@code server.max-http-request-header-size} 控制（后者只管请求头；实测把该值调到 64KB 后
-     * 请求行仍在 16KB 处被 431 拒绝）。中文字符 URL 编码后约 9 字节/字。</p>
+     * 契约把 question 放在 GET query string，Tomcat 在
+     * {@code Http11InputBuffer.parseRequestLine} 处对「请求行 + 请求头」做长度校验，
+     * 超限的请求<b>根本进不到本方法</b>，容器直接返回 431/400，前端 EventSource
+     * 只能看到一个没有任何信息的失败。</p>
      *
-     * <p>因此业务上限必须留在协议上限之内：1600 字 × 9 ≈ 14400 字节 &lt; 16370，
-     * 留出约 2KB 余量给路径、其它参数。这样"提问太长"会以 SSE error 事件的可读形式返回，
-     * 而不是让协议层在进 Controller 之前就断开连接（431），前端 EventSource 只能看到一个
-     * 没有任何信息的失败。</p>
+     * <p>实测（二分逼近）本机 Tomcat 10.1 的请求行上限：
+     * 默认约 8056 字节；配置 {@code server.max-http-request-header-size: 64KB} 后约 16370 字节。
+     * 中文 URL 编码后约 9 字节/字，故 1600 字 ≈ 14400 字节 &lt; 16370，留约 2KB 余量。</p>
+     *
+     * <p>⚠️ 本值与 {@code application.yml} 的 {@code max-http-request-header-size} 是配套的：
+     * 若去掉那项配置，上限会掉回 8056 字节，本值必须同步下调，否则超长提问仍会被协议层断连。</p>
      */
     private static final int MAX_QUESTION_LENGTH = 1600;
 
