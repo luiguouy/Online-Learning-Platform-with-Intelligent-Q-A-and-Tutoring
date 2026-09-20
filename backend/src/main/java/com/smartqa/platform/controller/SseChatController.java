@@ -1,14 +1,17 @@
 package com.smartqa.platform.controller;
 
 import cn.dev33.satoken.stp.StpUtil;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartqa.platform.service.rag.SseStreamService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.util.Map;
 import java.util.concurrent.RejectedExecutionException;
 
 /**
@@ -30,10 +33,38 @@ import java.util.concurrent.RejectedExecutionException;
 @Slf4j
 public class SseChatController {
 
-    private final SseStreamService sseStreamService;
+    /**
+     * SSE error 事件的错误码（与 SseStreamService 口径对齐）：
+     * 参数类错误走 4000，区别于 5000（内部异常）/ 5001（模型异常）/ 5002（落库失败）。
+     */
+    private static final int ERROR_CODE_PARAM = 4000;
 
-    public SseChatController(SseStreamService sseStreamService) {
+    /**
+     * 线程池饱和时的错误码。
+     * 与 SseStreamService 及成员 A 的加固口径一致：5003=服务繁忙（队列打满）。
+     */
+    private static final int ERROR_CODE_BUSY = 5003;    /**
+     * 提问文本长度上限（字符数，按中文估算）。
+     *
+     * <p><b>这个值由 Tomcat 的请求行长度上限反推得到，不是随手写的。</b>
+     * 契约把 question 放在 GET query string，实测（二分逼近）本机 Tomcat 10.1 允许的
+     * 请求行上限约 <b>16370 字节</b>，且该上限<b>不受</b>
+     * {@code server.max-http-request-header-size} 控制（后者只管请求头；实测把该值调到 64KB 后
+     * 请求行仍在 16KB 处被 431 拒绝）。中文字符 URL 编码后约 9 字节/字。</p>
+     *
+     * <p>因此业务上限必须留在协议上限之内：1600 字 × 9 ≈ 14400 字节 &lt; 16370，
+     * 留出约 2KB 余量给路径、其它参数。这样"提问太长"会以 SSE error 事件的可读形式返回，
+     * 而不是让协议层在进 Controller 之前就断开连接（431），前端 EventSource 只能看到一个
+     * 没有任何信息的失败。</p>
+     */
+    private static final int MAX_QUESTION_LENGTH = 1600;
+
+    private final SseStreamService sseStreamService;
+    private final ObjectMapper objectMapper;
+
+    public SseChatController(SseStreamService sseStreamService, ObjectMapper objectMapper) {
         this.sseStreamService = sseStreamService;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -64,6 +95,30 @@ public class SseChatController {
         // 超时时间 120 秒（与 application.yml rag.llm.timeout-seconds 保持裕量）
         SseEmitter emitter = new SseEmitter(120_000L);
 
+        // 【边界】空 / 纯空白提问在进入异步链路前拦下，否则会一路走到
+        // embeddingModel.embed()，抛 IllegalArgumentException: text cannot be null or blank，
+        // 兜底成 event:error {errorCode:5000}——用户传了空参数却表现成"服务内部异常"。
+        //
+        // 注意：这里**不能**直接 throw BusinessException。本接口 produces=text/event-stream，
+        // 而 @RestControllerAdvice 返回的是 JSON 的 Result；前端 EventSource 一定带
+        // Accept: text/event-stream，内容协商将拒绝序列化 JSON → 抛
+        // HttpMediaTypeNotAcceptableException → 落到 Tomcat 默认错误页，最终返回
+        // HTTP 500 空响应体（实测复现）。正确做法是走 SSE 通道，用 error 事件表达，
+        // 与 4.2 契约的 {"errorCode":..,"message":".."} 对齐。
+        if (!StringUtils.hasText(question)) {
+            log.warn("[SSE] 提问内容为空白，userId={}, courseId={}", userId, courseId);
+            sendErrorEvent(emitter, ERROR_CODE_PARAM, "提问内容不能为空");
+            return emitter;
+        }
+
+        // 【边界】超长提问：同样的理由走 SSE error 事件，给前端可读提示。
+        if (question.length() > MAX_QUESTION_LENGTH) {
+            log.warn("[SSE] 提问过长，userId={}, length={}", userId, question.length());
+            sendErrorEvent(emitter, ERROR_CODE_PARAM,
+                    "提问内容过长（最多 " + MAX_QUESTION_LENGTH + " 字），请精简后重试");
+            return emitter;
+        }
+
         // 在异步线程池中执行 RAG 检索 + 流式推送，避免阻塞 Tomcat 工作线程。
         // sseExecutor 采用 AbortPolicy：队列+线程打满时 @Async 提交会抛 TaskRejectedException，
         // 这里捕获后立刻给客户端下发 error 事件并结束，而不是拖占 Tomcat 线程（防级联 DoS）。
@@ -71,15 +126,30 @@ public class SseChatController {
             sseStreamService.streamChat(emitter, userId, courseId, question, sessionId);
         } catch (RejectedExecutionException e) {
             log.warn("[SSE] 问答线程池饱和，拒绝请求 userId={}, courseId={}", userId, courseId);
-            try {
-                emitter.send(SseEmitter.event().name("error")
-                        .data("{\"errorCode\":5003,\"message\":\"服务繁忙，请稍后重试\"}"));
-                emitter.complete();
-            } catch (Exception ignore) {
-                // 客户端已断开时忽略下发失败
-            }
+            sendErrorEvent(emitter, ERROR_CODE_BUSY, "服务繁忙，请稍后重试");
         }
 
         return emitter;
+    }
+
+    /**
+     * 通过 SSE 通道下发 error 事件并正常收尾。
+     *
+     * <p>不能用抛异常的方式表达本接口的参数错误：本接口 produces=text/event-stream，
+     * 全局 @RestControllerAdvice 返回 JSON 的 Result，前端 EventSource 带的
+     * Accept: text/event-stream 会让内容协商拒绝写 JSON，最终变成 HTTP 500 空体。
+     * 走 SSE 事件既能保持 HTTP 200 的统一契约，也能让前端 EventSource 正常收到结构化错误。</p>
+     */
+    private void sendErrorEvent(SseEmitter emitter, int errorCode, String message) {
+        try {
+            emitter.send(SseEmitter.event()
+                    .name("error")
+                    .data(objectMapper.writeValueAsString(
+                            Map.of("errorCode", errorCode, "message", message))));
+        } catch (Exception e) {
+            // 客户端已断开等场景：静默收尾，不再抛给容器
+            log.warn("[SSE] error 事件下发失败（客户端可能已断开）: {}", e.getMessage());
+        }
+        emitter.complete();
     }
 }

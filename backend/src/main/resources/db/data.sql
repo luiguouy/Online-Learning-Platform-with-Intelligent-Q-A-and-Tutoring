@@ -40,17 +40,21 @@ ON DUPLICATE KEY UPDATE
     description = VALUES(description);
 
 -- ---------------------------------------------------------------------------
--- 3. 课件
---    ⚠️ 演示占位数据：只有数据库记录、没有真实磁盘文件，
---       因此学生提问时检索不到它的内容（不是 Bug）。
---       成员 D 上传真实 PDF 后即可覆盖演示；不需要时直接删掉本段。
+-- 3. 课件（★ 有意不预置种子数据，理由见下）
+--    ⚠️【B3.3 复核后调整】这里**不再预置 course_document 种子行**。
+--
+--    原因：课件记录必须与「磁盘文件 + 向量库切片」三者一致才有意义。
+--    种子行只有数据库记录、没有真实文件，导致三个真实问题：
+--      ① 教师端课件列表首次打开就是一个 parse_status=PENDING 的条目，
+--         成员 D 的前端会为它启动状态轮询，而异步任务永远不会推进它
+--         （没有对应磁盘文件可切块）→ 前端轮询不停止，看起来像"卡死"；
+--      ② 学生提问时检索不到它的任何内容，教师会误以为 RAG 失效；
+--      ③ 演示时容易被当成 Bug 追问。
+--
+--    演示的正确做法：由教师端走真实上传流程（POST /api/teacher/docs/upload），
+--    由 B 的代码落盘 + 落库 + 触发 A 的切块，三步自然一致，状态从
+--    PARSING → CHUNKED（或 FAILED 并带可读 errorMsg），前端轮询有明确终点。
 -- ---------------------------------------------------------------------------
-INSERT INTO course_document (id, course_id, file_name, file_path, file_size, file_type, chunk_count, parse_status, error_msg) VALUES
-(1, 1, '第1章_操作系统引论.pdf', '/tmp/smartqa-demo/第1章_操作系统引论.pdf', 0, 'pdf', 0, 'PENDING', '')
-ON DUPLICATE KEY UPDATE
-    course_id = VALUES(course_id),
-    file_name = VALUES(file_name),
-    parse_status = VALUES(parse_status);
 
 -- ---------------------------------------------------------------------------
 -- 4. 课程知识点（供成员 A 的知识点解析接口消费）

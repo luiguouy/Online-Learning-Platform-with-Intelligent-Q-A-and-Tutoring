@@ -1,5 +1,13 @@
 server:
   port: 8080
+  # ⚠️ 关于提问长度：SSE 接口 GET /api/qa/chat/stream 把 question 放在 query string（契约冻结为 GET）。
+  # Tomcat 在 Http11InputBuffer.parseRequestLine 处按「请求行 + 请求头」的共用缓冲校验长度，
+  # 本机实测该上限为 16370 字节，且 **server.max-http-request-header-size 对它无效**
+  # （已实测：设 8KB 与设 64KB 结果完全相同，都卡在 16370 字节）。
+  # 因此这里**不要**放 max-http-request-header-size —— 放了会造成"已放宽"的错觉，
+  # 实际仍会被协议层在进 Controller 前拒成 431。正确的防线是业务侧的上限：
+  # SseChatController.MAX_QUESTION_LENGTH = 1600 字（中文 URL 编码约 14400 字节 < 16370），
+  # 超出时以 event:error {errorCode:4000} 的形式友好返回。
   servlet:
     context-path: /
     encoding:
