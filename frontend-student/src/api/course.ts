@@ -1,6 +1,4 @@
 import request from '@/utils/request';
-import { USE_MOCK } from '@/config';
-import { mockListCourses } from '@/mock/courses';
 import type { Course } from '@/types';
 
 /**
@@ -10,10 +8,10 @@ import type { Course } from '@/types';
  *       学生视角返回全部课程（本期无选课关系表，B 回复确认单 Q12）。
  * 字段名：courseName（不是 name / course_title）。
  * 接口无请求参数。
+ *
+ * C2.4：Mock 分支已按 README 第八节清理清单删除，本函数只打真实后端。
+ * 注：B 回复确认单附一第 5 条提到 CourseDocument 会带出 filePath，前端一律忽略、不展示。
  */
 export async function listCourses(): Promise<Course[]> {
-  if (USE_MOCK) {
-    return mockListCourses();
-  }
   return request.get<unknown, Course[]>('/course/list');
 }
