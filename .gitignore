@@ -47,6 +47,10 @@ uploads/
 
 # 工具与插件缓存
 .workbuddy/
+# AI 助手会话产物（机器本地配置与历史审查报告，不入库）
+.claude/
+# 会话交接文档（每次会话重新生成，不入库）
+HANDOFF.md
 # Graft 本地产物（每人各自 graft build 生成，不入库）
 graft/
 .ignore

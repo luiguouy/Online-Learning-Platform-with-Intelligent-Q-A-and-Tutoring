@@ -28,4 +28,7 @@ Write-Host "[run-local] AI_BASE_URL=$env:AI_BASE_URL" -ForegroundColor DarkGray
 Write-Host "[run-local] AI_CHAT_MODEL=$env:AI_CHAT_MODEL" -ForegroundColor DarkGray
 if ($env:AI_API_KEY) { Write-Host "[run-local] AI_API_KEY: (已设置, 不回显)" -ForegroundColor DarkGray }
 
-mvn spring-boot:run -DskipTests
+# 激活 local profile: 若已复制 application-local.yml.example 为 application-local.yml,
+# 则其中的本地私有配置(含 MyBatis SQL 日志 StdOutImpl)生效; 文件不存在时 Spring Boot 自动忽略, 不报错。
+Write-Host "[run-local] 激活 profile: local" -ForegroundColor Green
+mvn spring-boot:run -DskipTests "-Dspring-boot.run.profiles=local"
