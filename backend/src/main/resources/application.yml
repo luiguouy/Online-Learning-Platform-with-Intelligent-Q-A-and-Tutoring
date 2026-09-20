@@ -69,6 +69,11 @@ rag:
     overlap: 50
     similarity-threshold: 0.70
     top-k: 4
+  # 解析安全上限（M2 加固）：防止解压炸弹/超大文档拖垮切块线程
+  ingest:
+    max-file-bytes: 20971520        # 单文件解析输入上限 20MB（multipart 50MB 为第一道限制）
+    max-text-chars: 500000          # 解析提取文本上限 50 万字符
+    parse-timeout-seconds: 120      # 单文件解析超时（秒）
 
 file:
   upload-dir: ${user.home}/smartqa/uploads/

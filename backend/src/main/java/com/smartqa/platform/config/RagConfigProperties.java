@@ -20,6 +20,9 @@ public class RagConfigProperties {
     /** 文档分块配置 */
     private Chunk chunk = new Chunk();
 
+    /** 文档解析安全上限配置 */
+    private Ingest ingest = new Ingest();
+
     // ======================== 内部静态类 ========================
 
     public static class Llm {
@@ -94,6 +97,24 @@ public class RagConfigProperties {
         public void setTopK(Integer topK) { this.topK = topK; }
     }
 
+    public static class Ingest {
+        /** 单文件解析输入字节上限（防止解压炸弹撑爆内存，第一道限制是 multipart 的 50MB） */
+        private Long maxFileBytes = 20L * 1024 * 1024;
+        /** 解析提取文本字符上限（Tika WriteLimitReachedException 触发点） */
+        private Integer maxTextChars = 500_000;
+        /** 单文件解析超时（秒），防止畸形文档卡死切块线程 */
+        private Integer parseTimeoutSeconds = 120;
+
+        public Long getMaxFileBytes() { return maxFileBytes; }
+        public void setMaxFileBytes(Long maxFileBytes) { this.maxFileBytes = maxFileBytes; }
+
+        public Integer getMaxTextChars() { return maxTextChars; }
+        public void setMaxTextChars(Integer maxTextChars) { this.maxTextChars = maxTextChars; }
+
+        public Integer getParseTimeoutSeconds() { return parseTimeoutSeconds; }
+        public void setParseTimeoutSeconds(Integer parseTimeoutSeconds) { this.parseTimeoutSeconds = parseTimeoutSeconds; }
+    }
+
     // ======================== 顶层 Getter / Setter ========================
 
     public Llm getLlm() { return llm; }
@@ -104,4 +125,7 @@ public class RagConfigProperties {
 
     public Chunk getChunk() { return chunk; }
     public void setChunk(Chunk chunk) { this.chunk = chunk; }
+
+    public Ingest getIngest() { return ingest; }
+    public void setIngest(Ingest ingest) { this.ingest = ingest; }
 }
