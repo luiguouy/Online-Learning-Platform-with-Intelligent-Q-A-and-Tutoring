@@ -23,6 +23,12 @@ import java.util.concurrent.atomic.AtomicInteger;
  * {@code /api/qa/chat/stream} 与 {@code /api/knowledge/generate}，
  * 不做全局拦截（全局会误伤登录与课件上传）。</p>
  *
+ * <p><b>已知限制（单实例）</b>：计数窗口存在 JVM 内存
+ * （{@link ConcurrentHashMap}），多实例部署时各节点独立计数，
+ * 全局限流额度实际变为 {@code 实例数 × MAX_REQUESTS}。
+ * 本项目为课程作业单实例部署，可接受；若将来横向扩容，
+ * 需改用 Redis（如 Redisson RRateLimiter 或 INCR+EXPIRE）做集中计数。</p>
+ *
  * @author 成员 B
  */
 @Component
