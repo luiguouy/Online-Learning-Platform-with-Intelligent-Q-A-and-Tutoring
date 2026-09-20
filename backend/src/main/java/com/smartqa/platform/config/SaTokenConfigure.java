@@ -25,11 +25,12 @@ public class SaTokenConfigure implements WebMvcConfigurer {
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(new SaInterceptor(handle -> {
-            // 教师后台接口必须具备 TEACHER 角色
+            // 默认拒绝：/api/** 下除下方白名单外一律要求已登录。
+            // 之前只逐条 match /api/qa/**、/api/knowledge/**，新接口一旦漏写 match 就会裸奔；
+            // 改成“默认登录 + 显式放行”，以后新增任何 /api/** 接口自动纳入鉴权。
+            SaRouter.match("/api/**", r -> StpUtil.checkLogin());
+            // 教师后台接口在“已登录”基础上再要求 TEACHER 角色
             SaRouter.match("/api/teacher/**", r -> StpUtil.checkRole("TEACHER"));
-            // 学生问答及知识点生成接口必须已登录
-            SaRouter.match("/api/qa/**", r -> StpUtil.checkLogin());
-            SaRouter.match("/api/knowledge/**", r -> StpUtil.checkLogin());
         })).addPathPatterns("/api/**")
            // 放行登录与 Swagger/Knife4j 接口文档静态资源
            .excludePathPatterns(

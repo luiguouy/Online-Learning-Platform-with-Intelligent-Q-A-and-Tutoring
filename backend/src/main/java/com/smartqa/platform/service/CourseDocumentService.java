@@ -31,6 +31,19 @@ public interface CourseDocumentService extends IService<CourseDocument> {
     void markParsing(Long docId);
 
     /**
+     * 并发安全的状态推进：仅当课件当前处于终态（CHUNKED 或 FAILED）时，
+     * 才原子地把它置为 PARSING。
+     *
+     * <p>用于「重建索引」入口的状态机守卫：返回 {@code false} 表示课件仍在
+     * PARSING/PENDING 中（或已被删除），调用方应拒绝重建，避免并发重复切块
+     * 与「删旧向量 / 在途写入」交错。</p>
+     *
+     * @param docId 课件 ID
+     * @return 抢到状态（更新成功）返回 true，否则 false
+     */
+    boolean markParsingIfSettled(Long docId);
+
+    /**
      * 状态置为 CHUNKED 并写入分块数。
      *
      * @param docId      课件 ID
