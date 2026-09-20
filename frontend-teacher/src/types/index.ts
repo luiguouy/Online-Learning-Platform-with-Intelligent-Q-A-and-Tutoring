@@ -26,8 +26,8 @@ export interface Course {
 /**
  * 课件文档行（对应后端 CourseDocument）
  *
- * ⚠️ 后端序列化还会带出 `filePath`（服务器磁盘绝对路径）与 `isDeleted`（逻辑删除标记，恒 0）。
- * 二者**故意不在此声明**：`filePath` 属信息暴露点、禁止展示（Q8 第 5 条）；`isDeleted` 不作过滤依据。
+ * 2026-09-20 安全加固：后端已对 `filePath`（服务器磁盘绝对路径）加 @JsonIgnore，
+ * 列表响应不再携带该字段。`isDeleted`（逻辑删除标记，恒 0）也不在此声明。
  */
 export interface CourseDoc {
   id: number;

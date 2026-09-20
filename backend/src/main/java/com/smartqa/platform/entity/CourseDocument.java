@@ -1,5 +1,6 @@
 package com.smartqa.platform.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
@@ -54,7 +55,14 @@ public class CourseDocument implements Serializable {
     @Schema(description = "课件文件名，如：第3章_虚拟内存管理.pdf")
     private String fileName;
 
-    @Schema(description = "磁盘存储绝对路径")
+    /**
+     * 磁盘存储绝对路径。仅服务端内部使用（重建索引时重读磁盘），
+     * <b>不下发前端</b>：服务器路径属信息暴露点（历史审查 M 项），
+     * {@code @JsonIgnore} 后 {@code /api/teacher/docs/list} 响应不再携带该字段。
+     * MyBatis-Plus 读写数据库走 getter/setter，不受影响。
+     */
+    @JsonIgnore
+    @Schema(description = "磁盘存储绝对路径（内部使用，不下发）", hidden = true)
     private String filePath;
 
     @Schema(description = "文件字节大小")
