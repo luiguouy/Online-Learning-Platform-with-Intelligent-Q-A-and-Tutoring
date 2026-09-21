@@ -55,10 +55,18 @@ export async function generateKnowledgePoint(
     );
   }
 
-  const data = await request.post<unknown, KnowledgeGenerateVO>('/knowledge/generate', {
-    courseId: params.courseId,
-    knowledgePoint,
-  });
+  const data = await request.post<unknown, KnowledgeGenerateVO>(
+    '/knowledge/generate',
+    {
+      courseId: params.courseId,
+      knowledgePoint,
+    },
+    {
+      // 服务端阻塞式生成最长约 60s（rag.llm.timeout-seconds）：request.ts 全局 20s 会提前
+      // abort（后端还在烧 Token 而前端已报失败），仅此请求放宽；不动全局，避免拖慢其他接口故障感知
+      timeout: 90_000,
+    },
+  );
 
   const content = data?.content;
   if (typeof content === 'string' && content.trim()) {
