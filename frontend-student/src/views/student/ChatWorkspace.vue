@@ -278,7 +278,10 @@ function openKnowledge(question: string): void {
     ElMessage.warning('找不到这条回答对应的提问，无法生成知识点精解');
     return;
   }
-  void knowledgeRef.value?.open(courseStore.currentCourseId, question);
+  // A 的 knowledgePoint 限 100 字符（KnowledgeGenerateDTO @Size）：整条提问直接送会得到
+  // body.code=400「知识点名称过长」，先截断成短语级主题再触发精解
+  const point = question.trim().slice(0, 100);
+  void knowledgeRef.value?.open(courseStore.currentCourseId, point);
 }
 
 /** 点赞 / 点踩（C2.6）：真值处理与回滚都在 store 里，这里只做转发 */

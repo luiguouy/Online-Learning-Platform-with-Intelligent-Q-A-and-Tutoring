@@ -37,6 +37,16 @@ export const useChatStore = defineStore('chat', () => {
    */
   let activeBuffer: TypewriterBuffer | null = null;
 
+  /**
+   * 异步加载代次令牌（stale-guard）：快速切课/连点会话时，先发请求的慢响应
+   * 会后到并覆盖新状态。写 state 前比对令牌，过期响应直接丢弃。
+   * 两个计数器分开：会话列表加载与会话明细加载互不干扰，
+   * 否则 loadSessions 内联 await selectSession 会误伤自己的令牌。
+   * （同教师端 ba08487 确立的 stale-guard 写法）
+   */
+  let sessionsToken = 0;
+  let recordsToken = 0;
+
   /** 把后端 qa_record 映射为前端展示用的「提问 + 回答」两条消息 */
   function toMessages(records: QaRecord[]): ChatMessage[] {
     const list: ChatMessage[] = [];
@@ -76,33 +86,56 @@ export const useChatStore = defineStore('chat', () => {
 
   /** 拉取某课程下的历史会话（课程切换后调用） */
   async function loadSessions(courseId: number): Promise<void> {
+    const token = ++sessionsToken;
     loadingSessions.value = true;
     try {
-      sessions.value = await listSessions(courseId);
+      const list = await listSessions(courseId);
+      if (token !== sessionsToken) return; // 已被更新的切课取代，连同后续 selectSession 一起跳过
+      sessions.value = list;
       // 默认选中最近一条会话（列表按 createdAt 倒序，最新在最上）
-      const first = sessions.value[0];
+      const first = list[0];
       if (first) {
         await selectSession(first.id);
       } else {
-        currentSessionId.value = 0;
-        messages.value = [];
+        startNewSession();
       }
     } finally {
-      loadingSessions.value = false;
+      if (token === sessionsToken) {
+        loadingSessions.value = false;
+      }
     }
   }
 
   /** 切换会话并加载其历史问答 */
   async function selectSession(sessionId: number): Promise<void> {
+    const token = ++recordsToken;
     // 切会话必须先断流：否则旧回答的 token 会写进刚加载出来的历史消息里（错位渲染）
     stopStream();
-    currentSessionId.value = sessionId;
     loadingRecords.value = true;
     try {
-      messages.value = toMessages(await listRecords(sessionId));
+      const records = await listRecords(sessionId);
+      if (token !== recordsToken) return;
+      // currentSessionId 必须在响应落地同一时刻才切换：
+      // 若在 await 前赋值，连点两个会话时会出现「id 指向 B、消息区显示 A」的错位，此时提问挂错会话
+      currentSessionId.value = sessionId;
+      messages.value = toMessages(records);
     } finally {
-      loadingRecords.value = false;
+      if (token === recordsToken) {
+        loadingRecords.value = false;
+      }
     }
+  }
+
+  /**
+   * 新建会话：断流 + 复位展示，首次提问时 sessionId 传 0 由后端懒创建（契约 4.2）。
+   * 视图层不得绕过本方法直改 currentSessionId/messages —— 那样会漏掉断流与作废在途响应，
+   * 出现「旧流还在跑、界面卡在正在生成且输入框禁用」的残留态。
+   */
+  function startNewSession(): void {
+    recordsToken++;
+    stopStream();
+    currentSessionId.value = 0;
+    messages.value = [];
   }
 
   /**
@@ -252,6 +285,7 @@ export const useChatStore = defineStore('chat', () => {
     streaming,
     loadSessions,
     selectSession,
+    startNewSession,
     sendQuestion,
     setFeedback,
     stopStream,

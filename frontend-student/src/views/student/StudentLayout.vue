@@ -138,10 +138,9 @@ async function handleCourseChange(courseId: number): Promise<void> {
   }
 }
 
-/** 新建会话：本地清空展示，首次提问时 sessionId 传 0 由后端懒创建（契约 4.2） */
+/** 新建会话：统一走 store 的 startNewSession（内含断流+作废在途响应），不直接改 state */
 function handleNewChat(): void {
-  chatStore.currentSessionId = 0;
-  chatStore.messages = [];
+  chatStore.startNewSession();
   void router.push('/student/chat');
 }
 
