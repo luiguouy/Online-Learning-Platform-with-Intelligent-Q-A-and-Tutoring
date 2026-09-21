@@ -79,7 +79,7 @@ async function open(courseId: number, name: string): Promise<void> {
   visible.value = true;
 
   try {
-    const markdown = await generateKnowledgePoint({ courseId, pointName: name });
+    const markdown = await generateKnowledgePoint({ courseId, knowledgePoint: name });
     if (token !== requestToken) return;
     content.value = markdown;
   } catch (err) {

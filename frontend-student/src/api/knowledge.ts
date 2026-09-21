@@ -3,52 +3,69 @@ import request from '@/utils/request';
 /**
  * 知识点精解（C2.5）
  *
- * 接口：POST /api/knowledge/generate（成员 A 负责，A2.5）
- * 请求体：{ courseId, pointName }
- * 限流：与 /api/qa/chat/stream 共用「每用户每 60 秒 20 次」窗口
- *       （B 的 QaRateLimitInterceptor 把两条路径注册在一起，见 MEMBER_B_DEV_GUIDE 4.6）
+ * 接口：POST /api/knowledge/generate（成员 A，A2.5，已随 PR #44 合入 dev）
+ * 契约以 A 的源码为准，不臆造：
+ * - 请求体 KnowledgeGenerateDTO：{ courseId(Long, @NotNull), knowledgePoint(String, @NotBlank, @Size(max=100)) }
+ * - 响应   Result<KnowledgeGenerateVO>：解包 data 后为 { courseId, knowledgePoint, content }
+ * - content 是结构化 Markdown 精解（核心概念定义 + 难点辨析），本期不含自测题
+ * - 鉴权：需登录（Controller 内 StpUtil.checkLogin）；限流与 /api/qa/chat/stream 同一窗口
  *
- * ⚠️ 响应字段待确认（截至交付时 Issue #6 仍 OPEN，远端 dev 上还没有 KnowledgeController）：
- * 文档口径是「返回结构化 Markdown 精解（核心概念定义 + 难点辨析）」
- * （MEMBER_A_DEV_GUIDE 第一章第 6 条 / THREE_WEEK_PLAN A2.5 / 本指南 5.1 第 3 条），
- * 据此主口径按 Result<String> 解析。
- *
- * 若 A 最终返回 VO 对象，这里额外兜一层常见 markdown 承载字段；两者都取不到就**明确抛错**。
- * 不静默返回空串：那会变成「接口通了但面板一片空白」——联调时最难定位的一类问题。
+ * 服务端把 knowledgePoint 直接 embed 后做 Top-K 向量检索（见 KnowledgeService#generate），
+ * 所以它语义上是「一个短话题短语」，而不是整段提问 —— 这也解释了 DTO 为何限制 100 字。
  */
 
-/** 知识点精解请求体（字段名以 A 的 KnowledgeGenerateDTO 为准，此处按接口矩阵约定） */
+/** 知识点名称长度上限（对齐 KnowledgeGenerateDTO 的 @Size(max = 100)，超了后端回 400） */
+const KNOWLEDGE_POINT_MAX_LENGTH = 100;
+
+/** 知识点精解请求体（字段名逐字对齐 KnowledgeGenerateDTO） */
 export interface KnowledgeGenerateParams {
   courseId: number;
-  pointName: string;
+  /** 知识点名称（短话题短语），≤100 字 */
+  knowledgePoint: string;
 }
 
-/** VO 形态的兜底字段名（按可能性排序）；A 确认响应结构后只保留命中的那一个 */
-const MARKDOWN_FIELDS = ['markdown', 'content', 'explanation', 'detail'] as const;
+/** 知识点解析响应 VO（KnowledgeGenerateVO） */
+interface KnowledgeGenerateVO {
+  courseId?: number;
+  knowledgePoint?: string;
+  /** 结构化 Markdown 精解 */
+  content?: string;
+}
 
 /**
  * 触发知识点精解，返回可直接交给 MarkdownViewer 渲染的 Markdown 文本。
  *
- * @throws Error 响应结构不符合预期时抛出（由面板展示为错误态，不当作空内容渲染）
+ * @throws Error 入参不满足后端约束，或响应结构不符合契约时抛出
+ *         （由 KnowledgePanel 展示为错误态，不当作空内容渲染 —— 避免"接口通了但面板一片空白"）
  */
-export async function generateKnowledgePoint(params: KnowledgeGenerateParams): Promise<string> {
-  const data = await request.post<unknown, unknown>('/knowledge/generate', params);
+export async function generateKnowledgePoint(
+  params: KnowledgeGenerateParams,
+): Promise<string> {
+  const knowledgePoint = params.knowledgePoint.trim();
 
-  if (typeof data === 'string' && data.trim()) {
-    return data;
+  // 端上先挡，别把 400 原样抛给用户：后端只会回一句"知识点名称过长"，
+  // 用户无从知道超了多少、更不知道该怎么办。
+  if (!knowledgePoint) {
+    throw new Error('知识点名称为空，无法生成精解');
+  }
+  if (knowledgePoint.length > KNOWLEDGE_POINT_MAX_LENGTH) {
+    throw new Error(
+      `知识点名称最多 ${KNOWLEDGE_POINT_MAX_LENGTH} 字（当前 ${knowledgePoint.length} 字）。` +
+        '知识点精解按「一个短话题」检索课件，请用更短的一句话（如「页面置换算法 LRU 与 FIFO 对比」）后再试。',
+    );
   }
 
-  if (data && typeof data === 'object') {
-    const record = data as Record<string, unknown>;
-    for (const key of MARKDOWN_FIELDS) {
-      const value = record[key];
-      if (typeof value === 'string' && value.trim()) {
-        return value;
-      }
-    }
+  const data = await request.post<unknown, KnowledgeGenerateVO>('/knowledge/generate', {
+    courseId: params.courseId,
+    knowledgePoint,
+  });
+
+  const content = data?.content;
+  if (typeof content === 'string' && content.trim()) {
+    return content;
   }
 
   throw new Error(
-    '知识点解析接口返回结构不符合预期（既不是 Markdown 字符串，也不含 markdown 字段），请与成员 A 确认响应 VO 字段',
+    '知识点解析接口未返回 content 字段（期望 Result<KnowledgeGenerateVO>），请与成员 A 确认响应结构',
   );
 }
