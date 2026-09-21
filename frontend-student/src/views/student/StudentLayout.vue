@@ -39,10 +39,25 @@
       </div>
 
       <el-scrollbar class="session-scroll">
-        <div v-if="chatStore.loadingSessions" class="session-empty">加载中…</div>
-        <div v-else-if="chatStore.sessions.length === 0" class="session-empty">
-          该课程暂无历史会话
-        </div>
+        <!--
+          三态（C3.1）：先判「确实失败了」，再判加载中，最后才是空。
+          顺序不能反 —— 失败时 loadingSessions 已经复位成 false，若先判空态，
+          断网会被显示成「该课程暂无历史会话」，把故障说成"没有数据"。
+        -->
+        <StatePlaceholder
+          v-if="loadError"
+          state="error"
+          error-title="加载失败"
+          :description="loadError"
+          @retry="handleRetryLoad"
+        />
+        <StatePlaceholder v-else-if="chatStore.loadingSessions" state="loading" :rows="4" />
+        <StatePlaceholder
+          v-else-if="chatStore.sessions.length === 0"
+          state="empty"
+          :description="emptySessionsText"
+          :image-size="60"
+        />
         <ul v-else class="session-list">
           <li
             v-for="session in chatStore.sessions"
@@ -71,17 +86,19 @@
 
 <script setup lang="ts">
 /**
- * 学生端主布局（C1.5 布局 / C2.4 转真实接口 / C2.6 会话切换）
+ * 学生端主布局（C1.5 布局 / C2.4 转真实接口 / C2.6 会话切换 / C3.1 三态打磨）
  * 左侧：课程切换 + 历史会话导航；右侧：主操作区（智能答疑工作台）。
  * 数据来源：真实后端 —— 课程 GET /api/course/list，会话与明细 GET /api/qa/sessions、/api/qa/records。
  * （Week 1 的本地模拟数据 src/mock/ 与 Mock 开关已在 C2.4 按 README 第八节清理清单删除。）
  * 右侧「课件出处溯源抽屉」（C2.3）、「知识点精解」（C2.5）、点赞点踩（C2.6）都在工作台侧实现。
+ * C3.1：侧栏加载中 → 骨架屏；加载失败 → 友好文案 + 重试；空 → 空态组件。
  */
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { Plus } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
 
+import StatePlaceholder from '@/components/StatePlaceholder.vue';
 import { listCourses } from '@/api/course';
 import { useChatStore } from '@/stores/chatStore';
 import { useCourseStore } from '@/stores/courseStore';
@@ -99,6 +116,18 @@ const chatStore = useChatStore();
  */
 const loadingCourses = ref(true);
 
+/**
+ * 侧栏加载失败原因（C3.1）。
+ * 课程列表与会话列表共用一条：两者是同一条链路上的连续动作（会话要按 courseId 拉），
+ * 分开渲染会出现「课程失败 + 会话空态」两条互相矛盾的提示，反而让人以为没数据。
+ */
+const loadError = ref('');
+
+/** 侧栏空态文案：一门课都没有时不该说「该课程暂无历史会话」——根本没有"该课程" */
+const emptySessionsText = computed(() =>
+  courseStore.currentCourseId ? '该课程暂无历史会话' : '请先选择课程',
+);
+
 /** 会话时间只显示到分钟，后端返回 ISO 字符串（如 2026-09-12T20:31:05） */
 function formatTime(value: string): string {
   if (!value) return '';
@@ -111,30 +140,55 @@ function formatTime(value: string): string {
  * 失败兜底（PR #35 评审意见）：`onMounted` 里的 `void loadCourseAndSessions()` 会吞掉
  * rejection，两个 await 任一失败都成为 unhandled rejection —— C2.4 转真实接口后
  * 后端未启动 / 返回非 200 即会触发（这是 Mock 阶段掩盖不了的真实场景）。
- * 这里 catch 住并让 loading 态落地；request.ts 响应拦截器已统一弹过 ElMessage，无需重复提示。
+ *
+ * C3.1 起不再只是「吞掉」：失败原因落到 `loadError`（模板渲染错误态 + 重试）并同步到
+ * courseStore，供工作台区分「没有课程」与「拉课程失败」。
+ * 文案由 request.ts 统一归一（断网 / 超时 / 5xx 各有说法），这里直接用 `error.message`。
  * 注：`chatStore.loadSessions` 内部已有 finally 复位 `loadingSessions`，catch 里不重复处理。
  */
 async function loadCourseAndSessions(): Promise<void> {
+  // 重试会再走一遍这里，所以 loading 与失败态都在此处复位，而不是只依赖初始值
+  loadingCourses.value = true;
+  loadError.value = '';
+  courseStore.setCoursesError('');
   try {
     courseStore.setCourses(await listCourses());
-    await chatStore.loadSessions(courseStore.currentCourseId);
-  } catch {
+    // 课程列表为空时不必再拉会话：courseId=0 只会换来一次无意义的请求
+    // （后端对 0 可能直接报错，那就会把「没有课程」误报成「加载失败」）。
+    if (courseStore.currentCourseId) {
+      await chatStore.loadSessions(courseStore.currentCourseId);
+    } else {
+      chatStore.clear();
+    }
+  } catch (error) {
+    // 课程拉不到就没得选，会话也一起清掉，避免残留上一门课的历史
     courseStore.setCourses([]);
+    chatStore.clear();
+    const message = error instanceof Error ? error.message : '加载失败，请检查网络后重试';
+    loadError.value = message;
+    courseStore.setCoursesError(message);
   } finally {
     loadingCourses.value = false;
   }
 }
 
+/** 侧栏失败态的重试入口（C3.1）：重拉课程列表 + 当前课程的会话 */
+function handleRetryLoad(): void {
+  void loadCourseAndSessions();
+}
+
 /** 切换课程 → 重新拉该课程的历史会话（换课程不串会话） */
 async function handleCourseChange(courseId: number): Promise<void> {
   courseStore.selectCourse(courseId);
+  loadError.value = '';
   try {
     await chatStore.loadSessions(courseId);
-  } catch {
+  } catch (error) {
     // 拉取失败必须清掉上一课程的会话，否则侧栏仍显示旧课程列表，
     // 用户点击会用旧 sessionId 拉到另一课程的问答（串会话）。
-    // 拦截器已弹提示，此处不再重复提示。
     chatStore.clear();
+    // 拦截器已弹过一次提示（一闪而过）；这里的错误态是常驻且带重试的出口，两者分工不同。
+    loadError.value = error instanceof Error ? error.message : '会话加载失败，请重试';
   }
 }
 
@@ -148,7 +202,8 @@ async function handleSelectSession(sessionId: number): Promise<void> {
   try {
     await chatStore.selectSession(sessionId);
   } catch {
-    // 同上：拦截器已提示，此处仅保证不产生 unhandled rejection
+    // 兜底：selectSession 内部已把失败转成 recordsError（消息区显示错误态 + 重试），
+    // 正常不会再抛；这里只保证模板上的事件处理器不产生 unhandled rejection。
   }
   void router.push('/student/chat');
 }
@@ -226,13 +281,6 @@ onMounted(() => {
 .session-scroll {
   flex: 1;
   min-height: 0;
-}
-
-.session-empty {
-  padding: 24px 16px;
-  font-size: 12px;
-  color: var(--app-text-muted);
-  text-align: center;
 }
 
 .session-list {

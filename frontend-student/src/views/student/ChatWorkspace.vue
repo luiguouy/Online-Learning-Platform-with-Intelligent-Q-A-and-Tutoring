@@ -12,11 +12,24 @@
 
     <!-- 消息区 -->
     <el-scrollbar ref="scrollRef" class="chat-body" @scroll="handleScroll">
-      <div v-if="chatStore.loadingRecords" class="chat-tip">加载中…</div>
-
-      <el-empty
+      <!--
+        三态（C3.1）：先判「确实失败了」（课程列表或历史问答），再判加载中，最后才是空。
+        顺序不能反 —— 失败时 loadingRecords 已经复位成 false，先判空就会把故障
+        显示成「还没有问答记录」，等于告诉用户"这里本来就没内容"（这正是白屏的等价物）。
+      -->
+      <StatePlaceholder
+        v-if="bodyError"
+        state="error"
+        error-title="加载失败"
+        :description="bodyError"
+        :retryable="canRetryBody"
+        @retry="handleRetryRecords"
+      />
+      <StatePlaceholder v-else-if="chatStore.loadingRecords" state="loading" :rows="5" />
+      <StatePlaceholder
         v-else-if="chatStore.messages.length === 0"
-        description="还没有问答记录，先选一门课程，然后在下方提问吧"
+        state="empty"
+        :description="emptyText"
         :image-size="96"
       />
 
@@ -146,6 +159,7 @@
  *             点参考资料徽章打开 GroundingDrawer 溯源课件出处；
  *             一键触发 KnowledgePanel 看知识点精解（只读）；
  *             每条回答可点赞 / 点踩，选中态随历史会话一起恢复。
+ * C3.1：消息区三态 —— 骨架屏（加载）/ 友好错误 + 重试（失败，含课程列表失败）/ 空态。
  *
  * 节流说明：打字机的「合并一帧内的多个 delta」在 utils/typewriter.ts 里做，
  * 本组件只负责「每帧一次滚动」——滚动跟着落地节奏走，不会比文本更新更频繁。
@@ -157,12 +171,41 @@ import { ElMessage } from 'element-plus';
 import GroundingDrawer from '@/components/GroundingDrawer.vue';
 import KnowledgePanel from '@/components/KnowledgePanel.vue';
 import MarkdownViewer from '@/components/MarkdownViewer.vue';
+import StatePlaceholder from '@/components/StatePlaceholder.vue';
 import { useChatStore } from '@/stores/chatStore';
 import { useCourseStore } from '@/stores/courseStore';
 import type { SseReference } from '@/types';
 
 const courseStore = useCourseStore();
 const chatStore = useChatStore();
+
+/**
+ * 消息区失败原因（C3.1）。
+ * 两个来源合并成一个错误态：课程列表拉不到 → 没有检索范围，历史问答也拉不到；
+ * 分开渲染会出现「上面报课程失败、下面报记录失败」两条重复提示。
+ */
+const bodyError = computed(() => courseStore.coursesError || chatStore.recordsError);
+
+/**
+ * 只有「历史问答加载失败」能就地重试。
+ * 课程列表失败要回侧栏重试 —— 拉课程列表的入口在 StudentLayout 里，本视图没有那个函数。
+ * currentSessionId 为 0 时（新建会话）也没有可重拉的会话。
+ */
+const canRetryBody = computed(
+  () => !courseStore.coursesError && chatStore.currentSessionId > 0,
+);
+
+/** 空态文案：一门课都没选时说「还没有问答记录」是错的（提问根本发不出去） */
+const emptyText = computed(() =>
+  courseStore.currentCourseId
+    ? '还没有问答记录，在下方输入框提问开始第一次答疑吧'
+    : '请先在左侧选择课程',
+);
+
+/** 重拉当前会话的历史问答（C3.1 错误态的重试入口） */
+function handleRetryRecords(): void {
+  void chatStore.selectSession(chatStore.currentSessionId);
+}
 
 /** 输入草稿 */
 const draft = ref('');
@@ -326,13 +369,6 @@ onBeforeUnmount(() => {
   flex: 1;
   min-height: 0;
   padding: 16px 24px;
-}
-
-.chat-tip {
-  padding: 24px 0;
-  font-size: 13px;
-  color: var(--app-text-muted);
-  text-align: center;
 }
 
 .message-list {

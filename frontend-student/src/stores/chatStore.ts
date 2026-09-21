@@ -21,6 +21,8 @@ export const useChatStore = defineStore('chat', () => {
   const messages = ref<ChatMessage[]>([]);
   const loadingSessions = ref(false);
   const loadingRecords = ref(false);
+  /** 历史问答加载失败原因（C3.1）；空串表示没有失败 */
+  const recordsError = ref<string>('');
   /** 是否有一次流式回答正在生成（驱动输入框禁用与「停止生成」按钮） */
   const streaming = ref(false);
 
@@ -111,6 +113,10 @@ export const useChatStore = defineStore('chat', () => {
     const token = ++recordsToken;
     // 切会话必须先断流：否则旧回答的 token 会写进刚加载出来的历史消息里（错位渲染）
     stopStream();
+    // 先清空再加载（C3.1）：加载失败时若不清掉旧内容，侧栏已高亮新会话、消息区却还留着
+    // 上一会话的内容 —— 用户以为在看新会话，实际看到的是旧问答（串会话）。
+    messages.value = [];
+    recordsError.value = '';
     loadingRecords.value = true;
     try {
       const records = await listRecords(sessionId);
@@ -119,6 +125,15 @@ export const useChatStore = defineStore('chat', () => {
       // 若在 await 前赋值，连点两个会话时会出现「id 指向 B、消息区显示 A」的错位，此时提问挂错会话
       currentSessionId.value = sessionId;
       messages.value = toMessages(records);
+    } catch (error) {
+      // 不向上抛：两个调用方（侧栏点击、切课程后的自动选中）拿到 rejection 也只是吞掉。
+      // 失败态改由 recordsError 驱动 → 消息区渲染「加载失败 + 重试」占位，而不是留白。
+      // 只有仍属于本次调用的失败才落（过期响应不覆盖新状态）。
+      if (token !== recordsToken) return;
+      // 失败也要落 currentSessionId：用户明确点了这个会话，侧栏高亮与「重试」目标都该是它。
+      // 有 recordsToken 守卫，这里不会被旧响应覆盖（连点竞态已在 token 比对处挡住）。
+      currentSessionId.value = sessionId;
+      recordsError.value = error instanceof Error ? error.message : '历史问答加载失败，请重试';
     } finally {
       if (token === recordsToken) {
         loadingRecords.value = false;
@@ -136,6 +151,9 @@ export const useChatStore = defineStore('chat', () => {
     stopStream();
     currentSessionId.value = 0;
     messages.value = [];
+    // C3.2 修缺陷：漏清失败态会让「上一次历史问答加载失败」的错误占位压住新建的空会话，
+    // 用户唯一的出路是去点重试 —— 新建的会话永远进不去。
+    recordsError.value = '';
   }
 
   /**
@@ -274,6 +292,7 @@ export const useChatStore = defineStore('chat', () => {
     sessions.value = [];
     currentSessionId.value = 0;
     messages.value = [];
+    recordsError.value = '';
   }
 
   return {
@@ -282,6 +301,7 @@ export const useChatStore = defineStore('chat', () => {
     messages,
     loadingSessions,
     loadingRecords,
+    recordsError,
     streaming,
     loadSessions,
     selectSession,
