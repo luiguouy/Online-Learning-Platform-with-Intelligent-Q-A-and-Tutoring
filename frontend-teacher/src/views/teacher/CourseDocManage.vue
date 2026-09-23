@@ -45,7 +45,9 @@
           </el-tooltip>
         </template>
       </el-table-column>
-      <el-table-column prop="createdAt" label="上传时间" width="180" />
+      <el-table-column label="上传时间" width="180">
+        <template #default="{ row }">{{ formatDateTime(row.createdAt) }}</template>
+      </el-table-column>
       <el-table-column label="操作" width="170" fixed="right">
         <template #default="{ row }">
           <!-- 后端 reindex 无状态机守卫，对 PARSING/PENDING 中的课件再点会并发两次切块产生重复切片，故禁用 -->
@@ -89,6 +91,7 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 
 import { deleteDoc, fetchDocList, reindexDoc } from '@/api/teacher';
 import { useCourseStore } from '@/stores/course';
+import { formatDateTime } from '@/utils/format';
 import DocUploadModal from './components/DocUploadModal.vue';
 import type { CourseDoc } from '@/types';
 
