@@ -26,16 +26,6 @@
           登 录
         </el-button>
       </el-form>
-
-      <el-alert
-        v-if="USE_MOCK"
-        class="login-tip"
-        type="info"
-        :closable="false"
-        show-icon
-        title="当前为 Mock 阶段（后端登录接口 B1.4 未就绪）"
-        description="可用账号：student01 / 123456、student02 / 123456（学生）；teacher01 / 123456（教师，用于验证被拦截）。"
-      />
     </el-card>
   </div>
 </template>
@@ -45,6 +35,9 @@
  * 学生端登录页（C1.4）
  * 说明：本期无注册功能（AGENT_INSTRUCTIONS.md 2.3），账号由 data.sql 种子数据预置。
  * 与教师端 LoginView 的差异：本页只接受 STUDENT 角色，教师账号登录成功也不得进入工作台。
+ *
+ * C2.4：原先的「当前为 Mock 阶段」提示块随 src/mock/ 一并移除，本页只打真实
+ * POST /api/auth/login；账号提示属联调信息，不应出现在交付版本里。
  */
 import { reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -54,7 +47,6 @@ import type { FormInstance, FormRules } from 'element-plus';
 
 import { login } from '@/api/auth';
 import { useUserStore } from '@/stores/userStore';
-import { USE_MOCK } from '@/config';
 
 const router = useRouter();
 const route = useRoute();
@@ -135,9 +127,5 @@ async function handleSubmit(): Promise<void> {
 .login-button {
   width: 100%;
   margin-top: 4px;
-}
-
-.login-tip {
-  margin-top: 18px;
 }
 </style>

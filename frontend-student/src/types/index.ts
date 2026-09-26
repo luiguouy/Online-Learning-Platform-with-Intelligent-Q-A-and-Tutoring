@@ -77,7 +77,7 @@ export interface QaRecord {
   answer: string;
   /** 后端为 JSON 数组；历史数据可能为 null，渲染前统一兜底成 [] */
   groundingReferences?: SseReference[] | null;
-  /** 点赞 1 / 点踩 -1 / 未评价 null */
+  /** 点赞 1 / 点踩 -1 / 未评价 0（QaRecord.FEEDBACK_NONE）；历史数据可能为 null */
   feedbackRating?: number | null;
   createdAt?: string;
 }
@@ -91,6 +91,14 @@ export interface ChatMessage {
   references?: SseReference[];
   /** AI 消息：落库后回传的 recordId（点赞/点踩用） */
   recordId?: number;
+  /**
+   * AI 消息：本条回答的反馈态。
+   * 1 = 已点赞，-1 = 已点踩，0 = 未评价（与后端 QaRecord.FEEDBACK_* 取值一致，
+   * 所以历史会话回填时不需要做 0/null 的语义转换）。
+   */
+  feedbackRating?: number;
   /** AI 消息：是否仍在流式输出中 */
   streaming?: boolean;
+  /** AI 消息：流式过程中的错误提示（error 事件或传输异常），与正文分开显示 */
+  error?: string;
 }

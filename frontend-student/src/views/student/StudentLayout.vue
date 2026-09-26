@@ -71,10 +71,11 @@
 
 <script setup lang="ts">
 /**
- * 学生端主布局（C1.5）
+ * 学生端主布局（C1.5 布局 / C2.4 转真实接口 / C2.6 会话切换）
  * 左侧：课程切换 + 历史会话导航；右侧：主操作区（智能答疑工作台）。
- * 数据来源：Week 1 走 Mock（src/config/index.ts 的 USE_MOCK）。
- * 说明：右侧「课件出处溯源抽屉」属 C2.3，本周不实现。
+ * 数据来源：真实后端 —— 课程 GET /api/course/list，会话与明细 GET /api/qa/sessions、/api/qa/records。
+ * （Week 1 的本地模拟数据 src/mock/ 与 Mock 开关已在 C2.4 按 README 第八节清理清单删除。）
+ * 右侧「课件出处溯源抽屉」（C2.3）、「知识点精解」（C2.5）、点赞点踩（C2.6）都在工作台侧实现。
  */
 import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
@@ -108,9 +109,9 @@ function formatTime(value: string): string {
  * 拉课程列表 + 首个课程的历史会话。
  *
  * 失败兜底（PR #35 评审意见）：`onMounted` 里的 `void loadCourseAndSessions()` 会吞掉
- * rejection，两个 await 任一失败都成为 unhandled rejection —— `USE_MOCK=false`（C2.4 联调）
- * 后 `listCourses()` 返回非 200 即触发。这里 catch 住并让 loading 态落地；
- * request.ts 响应拦截器已统一弹过 ElMessage，无需重复提示。
+ * rejection，两个 await 任一失败都成为 unhandled rejection —— C2.4 转真实接口后
+ * 后端未启动 / 返回非 200 即会触发（这是 Mock 阶段掩盖不了的真实场景）。
+ * 这里 catch 住并让 loading 态落地；request.ts 响应拦截器已统一弹过 ElMessage，无需重复提示。
  * 注：`chatStore.loadSessions` 内部已有 finally 复位 `loadingSessions`，catch 里不重复处理。
  */
 async function loadCourseAndSessions(): Promise<void> {
@@ -137,10 +138,9 @@ async function handleCourseChange(courseId: number): Promise<void> {
   }
 }
 
-/** 新建会话：本地清空展示，首次提问时 sessionId 传 0 由后端懒创建（契约 4.2） */
+/** 新建会话：统一走 store 的 startNewSession（内含断流+作废在途响应），不直接改 state */
 function handleNewChat(): void {
-  chatStore.currentSessionId = 0;
-  chatStore.messages = [];
+  chatStore.startNewSession();
   void router.push('/student/chat');
 }
 
