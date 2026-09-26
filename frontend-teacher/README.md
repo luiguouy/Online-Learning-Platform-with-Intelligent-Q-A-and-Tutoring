@@ -60,6 +60,13 @@
 > - **Q17 已落地**：`CourseDocManage.vue` 加轮询兜底——3 秒轮询 + **最长 2 分钟自动停** + 页面「刷新」按钮（手动刷新与上传成功都会重置 2 分钟窗口），超时展示 `el-alert` 告示条。
 > - **Q7~Q13 待成员 B**：已在 `src/types/index.ts`、`src/api/teacher.ts` 标 `TODO` 注明当前口径，不阻塞本周。
 
+> **D3.1（2026-09-23）：全链路端到端测试 + P2-1 修复**
+> - **测试报告**：见工作区根 `D-D3.1-测试报告与缺陷清单.md`（30 用例 / 28 通过；**D 侧 P0/P1 = 0**）
+> - **P2-1 修复（本目录代码改动）**：课件页「上传时间」原为 `<el-table-column prop="createdAt" />` **直接绑定原始 ISO 串**（显示 `2026-09-23T10:42:26`），改为调用 `formatDateTime()`；同时把问答记录页的本地 `formatTime` **抽到 `src/utils/format.ts` 共用**，消除「同一项目两处处理不一致」
+>   - 静态验证：`node node_modules/vue-tsc/bin/vue-tsc.js --noEmit` **退出码 0**；`node node_modules/vite/bin/vite.js build` **退出码 0**（6.63s）
+>   - 浏览器实测（1440×900）：课件页显示 `2026-09-23 10:42:26` ✅；**回归**问答记录页 `consoleErr=0`、时间列正常 ✅
+> - **已知观感项 P2-4**：窄视口（≤约 1330px）下「上传时间」列尾部会被 `fixed="right"` 的「操作」列遮挡；**属既有问题**（该列列宽定义前后未变，非本次引入），宽屏完全正常 —— 是否调整列宽待定
+
 ---
 
 ## 二、如何运行
@@ -101,6 +108,7 @@ src/
 ├── styles/global.css       # reset + 主题变量（主色 Indigo #4F46E5）
 ├── types/                  # 全局类型（状态机四态、接口返回结构）
 ├── utils/request.ts        # axios 统一封装（自动带 Authorization 头、解包 Result）
+├── utils/format.ts         # 时间格式化 formatDateTime（D3.1 新增，课件页 + 问答记录页共用）
 └── views/
     ├── auth/LoginView.vue
     └── teacher/
