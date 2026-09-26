@@ -1,5 +1,25 @@
 server:
   port: 8080
+  # ==========================================================================
+  # 提问长度上限（与 SseChatController.MAX_QUESTION_LENGTH 配套，勿单独改）
+  #
+  # 背景：SSE 接口 GET /api/qa/chat/stream 把 question 放在 query string（契约冻结为 GET）。
+  # Tomcat 在 Http11InputBuffer.parseRequestLine 处对「请求行 + 请求头」做长度校验，
+  # 超限直接抛 IllegalArgumentException: Request header is too large，
+  # 由容器返回 431/400，**请求根本进不到 Controller**，前端 EventSource 只看到无信息失败。
+  #
+  # 【实测数据（二分逼近，本机 Tomcat 10.1）】
+  #   - 不配本项（Tomcat 默认）：请求行上限 ≈ 8056 字节（约 8KB）
+  #   - 配 max-http-request-header-size: 64KB：请求行上限 ≈ 16370 字节（约 16KB）
+  # 结论：本项**确实**会抬高请求行上限（此前误判为"无效"，已纠正）；
+  #       实测上限约为配置值的 1/4 而非等值——Tomcat 对该缓冲的分配并非简单等于配置值，
+  #       因此**不能**按 64KB 反推可用提问长度，必须以实测值为准。
+  #
+  # 由此确定业务上限 MAX_QUESTION_LENGTH = 1600 字：
+  #   1600 字 × 约 9 字节/字（中文 URL 编码）= 14400 字节 < 实测 16370 字节，留约 2KB 余量。
+  # 这样"提问太长"会走 event:error {errorCode:4000} 友好返回，而不是被协议层断连。
+  # ==========================================================================
+  max-http-request-header-size: 64KB
   servlet:
     context-path: /
     encoding:
