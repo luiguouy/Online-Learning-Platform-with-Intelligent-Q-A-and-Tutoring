@@ -11,6 +11,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.RejectedExecutionException;
 
@@ -43,7 +44,9 @@ public class SseChatController {
      * 线程池饱和时的错误码。
      * 与 SseStreamService 及成员 A 的加固口径一致：5003=服务繁忙（队列打满）。
      */
-    private static final int ERROR_CODE_BUSY = 5003;    /**
+    private static final int ERROR_CODE_BUSY = 5003;
+
+    /**
      * 提问文本长度上限（字符数，按中文估算）。
      *
      * <p><b>这个值由 Tomcat 的请求行长度上限反推得到，不是随手写的。</b>
@@ -60,6 +63,15 @@ public class SseChatController {
      * 若去掉那项配置，上限会掉回 8056 字节，本值必须同步下调，否则超长提问仍会被协议层断连。</p>
      */
     private static final int MAX_QUESTION_LENGTH = 1600;
+
+    /**
+     * 【审查 L2】提问的 UTF-8 字节上限：URL 编码后每个 UTF-8 字节占 3 字节（%XX）。
+     * 9 字节/字的估算只对 3 字节字符（常规中文）成立；emoji / CJK 扩展 B 区是
+     * 4 字节字符（编码后 12 字节/字），1600 字 = 19200 字节 > 实测协议上限 16370，
+     * 仅按字符数拦会让这类请求在 Tomcat 协议层被无信息 431 掉，绕过友好提示。
+     * 5300 UTF-8 字节 ≈ 15900 编码字节 + 路径参数余量，常规 1600 字中文（4800 字节）不受影响。
+     */
+    private static final int MAX_QUESTION_UTF8_BYTES = 5300;
 
     private final SseStreamService sseStreamService;
     private final ObjectMapper objectMapper;
@@ -82,10 +94,10 @@ public class SseChatController {
     @GetMapping(value = "/chat/stream", produces = "text/event-stream;charset=UTF-8")
     public SseEmitter chat(
             @Parameter(description = "课程 ID", required = true)
-            @RequestParam Long courseId,
+            @RequestParam(required = false) Long courseId,
 
             @Parameter(description = "学生问题", required = true)
-            @RequestParam String question,
+            @RequestParam(required = false) String question,
 
             @Parameter(description = "会话 ID（首次提问传 0 或省略，续问传上次 done 包的 sessionId）")
             @RequestParam(required = false) Long sessionId) {
@@ -107,14 +119,21 @@ public class SseChatController {
         // HttpMediaTypeNotAcceptableException → 落到 Tomcat 默认错误页，最终返回
         // HTTP 500 空响应体（实测复现）。正确做法是走 SSE 通道，用 error 事件表达，
         // 与 4.2 契约的 {"errorCode":..,"message":".."} 对齐。
-        if (!StringUtils.hasText(question)) {
-            log.warn("[SSE] 提问内容为空白，userId={}, courseId={}", userId, courseId);
-            sendErrorEvent(emitter, ERROR_CODE_PARAM, "提问内容不能为空");
+        // 【审查 M2】必填参数缺失的校验必须在方法内做：若依赖 @RequestParam 的 required 检查，
+        // MissingServletRequestParameterException 会被 produces=text/event-stream 的内容协商
+        // 卡住（advice 回 JSON 被拒）→ HTTP 500 空体，与 B3.1「空/缺参友好返回不 500」目标相背。
+        // 改为 required=false + 手动拦截，统一走 SSE error 通道。
+        if (courseId == null || !StringUtils.hasText(question)) {
+            log.warn("[SSE] 缺少必要参数或提问为空，userId={}, courseId={}", userId, courseId);
+            sendErrorEvent(emitter, ERROR_CODE_PARAM, "缺少必要参数：courseId / question");
             return emitter;
         }
 
         // 【边界】超长提问：同样的理由走 SSE error 事件，给前端可读提示。
-        if (question.length() > MAX_QUESTION_LENGTH) {
+        // 【审查 L2】字符数与 UTF-8 字节数双重校验：后者兜底 4 字节字符（emoji 等）
+        // 编码膨胀超出 Tomcat 请求行上限的情况，避免请求被协议层无信息 431 掉。
+        if (question.length() > MAX_QUESTION_LENGTH
+                || question.getBytes(StandardCharsets.UTF_8).length > MAX_QUESTION_UTF8_BYTES) {
             log.warn("[SSE] 提问过长，userId={}, length={}", userId, question.length());
             sendErrorEvent(emitter, ERROR_CODE_PARAM,
                     "提问内容过长（最多 " + MAX_QUESTION_LENGTH + " 字），请精简后重试");

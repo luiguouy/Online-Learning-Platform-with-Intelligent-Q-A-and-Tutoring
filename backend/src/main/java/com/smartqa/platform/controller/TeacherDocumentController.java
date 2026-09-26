@@ -114,10 +114,12 @@ public class TeacherDocumentController {
         try {
             file.transferTo(dest);
         } catch (IOException e) {
-            // 兜底：非法字符、路径超长、磁盘满、权限不足等落盘失败，
-            // 统一转成带上下文的提示，不再以裸 IOException 暴露成"系统繁忙"。
+            // 兜底：非法字符、路径超长、磁盘满、权限不足等落盘失败，统一转成可读提示。
+            // 【审查 M1】不得把 e.getMessage() 拼进响应：Windows 下 FileNotFoundException 的
+            // message 含上传目录绝对路径与落盘命名规则（时间戳前缀），会泄漏服务器路径，
+            // 性同 dev 上刚移除 filePath 下发的加固（2b9a78c）。细节全进日志，响应只给可执行提示。
             log.error("课件落盘失败, courseId={}, fileName={}, dest={}", courseId, originalName, savedPath, e);
-            throw new BusinessException("文件保存失败：" + e.getMessage() + "，请更换文件名或检查磁盘空间");
+            throw new BusinessException(500, "文件保存失败，请重命名文件（避免特殊字符）后重试，若仍失败请联系管理员");
         }
 
         // 2. 落库并直接把状态推进到 PARSING（切块任务紧接着提交，不存在真正的排队期）

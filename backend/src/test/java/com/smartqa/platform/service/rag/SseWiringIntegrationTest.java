@@ -182,10 +182,11 @@ class SseWiringIntegrationTest {
     @DisplayName("边界1：超长提问（1800 字 > 1600 上限）被业务上限拦截为 error 4000，不落库")
     void oversizedQuestion() throws Exception {
         // MAX_QUESTION_LENGTH = 1600（见 SseChatController）；1800 字超出业务上限。
-        // 注意：此处刻意不把长度推到协议层（请求行 > 16370 字节 → Tomcat 431 断连，
-        // 前端 EventSource 只能看到无信息的失败），而是落在「业务上限内、协议上限外」的
-        // 区间，验证我们能以 event:error 友好返回 —— 这正是 B3.1 修复的缺陷点。
-        String question = "虚拟内存".repeat(600); // 4 字 × 600 = 2400 字 > 1600
+        // 【审查 H1】长度刻意落在「业务上限外、协议上限内」（1800 字 URL 编码后 ≈16200 字节
+        // < 实测协议上限 16370）——真实 HTTP 客户端发的这条请求也能进到业务拦截拿到 4000；
+        // 超出协议上限的区间（真实请求会被 Tomcat 无信息 431 掉）由 SseProtocolBoundaryTest
+        // 走真实协议栈单独锁定——本类的 MockMvc 把参数直塞 parameterMap，不经请求行解析，覆盖不到那一层。
+        String question = "虚拟内存".repeat(450); // 4 字 × 450 = 1800 字 > 1600
         String body = stream(question, 0L);
 
         JsonNode error = jsonOfEvent(body, "error");
