@@ -82,8 +82,9 @@ async function handleSubmit(): Promise<void> {
 
     const redirect = route.query.redirect;
     await router.replace(typeof redirect === 'string' ? redirect : '/student/chat');
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '登录失败');
+  } catch {
+    // 失败提示由 request.ts 的响应拦截器统一弹出（账号密码错误的后端文案也在那里透出）。
+    // C3.2：这里原先又弹一次，界面会出现两条一模一样的红色提示 —— 只保留复位 loading 的职责。
   } finally {
     loading.value = false;
   }
