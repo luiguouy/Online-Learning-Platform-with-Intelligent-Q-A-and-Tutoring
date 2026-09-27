@@ -7,6 +7,7 @@ body:
     attributes:
       value: |
         > **没有复现步骤的 Bug 报告无法被修复。** 请务必填写复现步骤与报错日志。
+        > **关单规则**：修复缺陷的 PR 描述里**不要写 `Closes #<本Issue编号>`**（会自动关单、跳过验证）。合并后由**发现者**复现验证，确认修好了再手动 Close（见 COLLABORATION_WORKFLOW.md 9.2）。
 
   - type: dropdown
     id: severity

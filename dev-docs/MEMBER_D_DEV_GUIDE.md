@@ -2,7 +2,7 @@
 
 > **角色**：成员 D（教师后台工程师 · 前端工程师 · 答辩统筹）  
 > **职责模块**：教师端管理后台、课件上传与切块状态监控、问答记录查看、答辩演练与工程文档统筹  
-> **适用技术栈**：Vue 3 + Vite + TypeScript + Element Plus + Axios + Pinia
+> **适用技术栈**：Vue 3 + Vite + TypeScript + Element Plus + Axios（教师端两个页面都是"拉列表 + 展示"，无跨页共享状态，**不使用 Pinia**，见第二节依赖清单）
 
 ---
 
@@ -11,7 +11,9 @@
 成员 D 是教师角色的**“管理控制中心”**，同时兼任小组的**“交付与答辩质量总监”**：
 
 1. **教师后台管理框架**：采用经典左侧菜单 + 顶部面包屑 + 主工作台布局，只有两个子系统：**“课件知识库管理”**与**“问答记录查看”**。
-2. **课件文件管理与分块状态监控**：实现拖拽上传课件（PDF/MD/TXT），限制大小（<=50MB），轮询展示切块状态机（排队中 -> 切片中 -> 已就绪 -> 失败），支持在线查看切块数量。
+2. **课件文件管理与分块状态监控**：实现拖拽上传课件（PDF/MD/TXT），限制大小（<=20MB，见下方口径说明），轮询展示切块状态机（排队中 -> 切片中 -> 已就绪 -> 失败），支持在线查看切块数量。
+
+> **上传大小口径说明（issue #46 裁决，2026-09-27）**：前端校验与提示文案以 **20MB** 为准——后端 RAG 解析层 `rag.ingest.max-file-bytes=20MB` 是 PR#39 安全加固（M2 三层上限）的有意设计，防解压炸弹/超长文本撑爆内存，不得放宽。multipart 传输层的 50MB 仅是容器级粗保护，不是业务口径。本文档旧版写 50MB 的三处（功能范围/提示文案/示例代码）已统一修订。
 3. **问答记录查看**：提供问答记录表格，支持按课程、时间、关键词筛选，可查看单条问答的完整内容（提问、AI 回答、参考出处）。**该模块只读，不提供任何修改 AI 回答的功能。**
 4. **项目验收与答辩物料统筹**：牵头整合团队的最终代码仓库、编撰系统使用说明书、准备答辩 PPT 与现场演示脚本。
 
@@ -60,6 +62,8 @@ src/views/teacher/
 ---
 
 ## 四、 核心功能代码实现指南
+
+> ⚠️ **样式说明**：本文件示例代码里的 `text-slate-500`、`p-6`、`rounded` 这类工具类只是示意排版效果，**项目并未安装 Tailwind CSS**（依赖红线，见第二节）。实现时用 `<style scoped>` 写普通 CSS 或直接用 Element Plus 组件属性达到同样效果即可，**不要为几行示例去装 Tailwind**。
 
 ### 4.1 课件拖拽上传与切块状态监控 (`CourseDocManage.vue`)
 ```vue
@@ -118,7 +122,7 @@ src/views/teacher/
         </div>
         <template #tip>
           <div class="el-upload__tip text-xs text-slate-400">
-            支持 PDF / DOCX / Markdown / TXT，单文件大小不超过 50MB
+            支持 PDF / DOCX / Markdown / TXT，单文件大小不超过 20MB
           </div>
         </template>
       </el-upload>
@@ -156,11 +160,12 @@ const fetchDocs = async () => {
 };
 
 const beforeUpload = (file: File) => {
-  const isLt50M = file.size / 1024 / 1024 < 50;
-  if (!isLt50M) {
-    ElMessage.error('上传文件大小不能超过 50MB!');
+  // 20MB 与后端 rag.ingest.max-file-bytes 对齐（issue #46 裁决），勿改回 50
+  const isLt20M = file.size / 1024 / 1024 < 20;
+  if (!isLt20M) {
+    ElMessage.error('上传文件大小不能超过 20MB!');
   }
-  return isLt50M;
+  return isLt20M;
 };
 
 const handleUploadSuccess = () => {

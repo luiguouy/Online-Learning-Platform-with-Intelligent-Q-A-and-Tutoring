@@ -12,7 +12,7 @@
 
 1. **数据库物理建模与维护**：设计并维护 6 张核心表结构，编写规范的初始建表 SQL（`schema.sql`）与演示模拟数据（`data.sql`）。
 2. **安全鉴权与角色权限（RBAC）**：基于 Sa-Token 实现轻量级无状态 Token 机制，划分“学生（STUDENT）”与“教师（TEACHER）”双重身份体系，实现路由白名单与鉴权拦截。
-3. **课程与课件元数据管理**：课程的新增/修改/删除/查询；课件文件的本地/OSS 存储落盘，维护课件元数据与解析状态机（`PENDING` -> `PARSING` -> `CHUNKED` -> `FAILED`）。
+3. **课程与课件元数据管理**：课程**查询**（本期接口清单只有 `GET /api/course/list`，课程的新增/修改/删除不在范围内，不要实现）；课件文件的本地存储落盘，维护课件元数据与解析状态机（`PENDING` -> `PARSING` -> `CHUNKED` -> `FAILED`）。
 4. **问答持久化与评价闭环**：配合成员 A 的流式输出，异步记录每次问答的提问、回答、耗时及切块溯源；提供会话列表查询与学生点赞/点踩反馈接口。
 5. **问答记录查询**：为成员 D 教师后台提供学生提问明细的分页查询接口（支持按课程、时间、关键词筛选）。
 6. **接口契约先行**：集成 Knife4j，第一时间向成员 C 和成员 D 提供可在线调试的 OpenAPI 接口文档。
@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS course_document (
     id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '课件ID',
     course_id BIGINT NOT NULL COMMENT '关联课程ID',
     file_name VARCHAR(200) NOT NULL COMMENT '课件文件名 (如: 第3章_虚拟内存管理.pdf)',
-    file_path VARCHAR(500) NOT NULL COMMENT '磁盘存储相对路径',
+    file_path VARCHAR(500) NOT NULL COMMENT '磁盘存储绝对路径（配置项 file.upload-dir 拼接后的全路径，重启不丢）',
     file_size BIGINT NOT NULL DEFAULT 0 COMMENT '文件字节大小',
     file_type VARCHAR(20) NOT NULL COMMENT '文件格式 (pdf, docx, md, txt)',
     chunk_count INT NOT NULL DEFAULT 0 COMMENT '切块片段总数',
@@ -91,6 +91,7 @@ CREATE TABLE IF NOT EXISTS qa_record (
     latency_ms INT DEFAULT 0 COMMENT '模型生成耗时(毫秒)',
     is_deleted TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除: 0-正常, 1-删除',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_session_record (session_id),
     INDEX idx_course_record (course_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='问答明细记录表';
@@ -515,6 +516,7 @@ public class QaRateLimitInterceptor implements HandlerInterceptor {
     public boolean preHandle(HttpServletRequest request,
                              HttpServletResponse response, Object handler) throws Exception {
         // 关键：未登录时绝不能调用 getLoginIdAsLong()，否则抛 NotLoginException 变成 500
+        // 此处直写 JSON 是 Result<T> 红线的官方豁免（拦截器拿不到 Controller 返回值），字段名仍须与 Result 一致
         if (!StpUtil.isLogin()) {
             response.setStatus(401);
             response.setContentType("application/json;charset=UTF-8");

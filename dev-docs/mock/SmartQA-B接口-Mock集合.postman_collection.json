@@ -1,0 +1,594 @@
+{
+  "info": {
+    "_postman_id": "b1a7c0de-2024-4d7f-9c3e-smartqa-b0107",
+    "name": "SmartQA 智能答疑平台 · 接口契约集合（B1.7 Mock 先行）",
+    "description": "## 用途\n成员 B 提供给成员 C / D 的 Postman 契约集合。**接口未实现前，前端照此 Mock 开发，互不阻塞**（见 COLLABORATION_WORKFLOW.md 6.4）。\n\n## 契约依据\n- 路径与 `dev-docs/TEAM_WORK_DIVISION.md` 第三章接口矩阵**逐字符一致**（前端已按此写死）\n- 统一响应体：`{ code, message, data, timestamp }`，code ∈ {200,400,401,403,404,429,500}\n- 鉴权头：`Authorization: Bearer <token>`（**缺 Bearer 前缀一律 401**）\n\n## 使用方法\n1. 选环境 `SmartQA-Local`（baseUrl 默认 http://localhost:8080）\n2. 先跑「1. 身份认证 → 教师登录」和「学生登录」，token 会**自动写入环境变量** `teacherToken` / `studentToken`\n3. 其余请求已按角色自动引用对应 token，直接 Send 即可\n\n## 种子账号（来自 backend/src/main/resources/db/data.sql）\n| 账号 | 密码 | 角色 | userId |\n| :--- | :--- | :--- | :--- |\n| teacher01 | 123456 | TEACHER | 1 |\n| student01 | 123456 | STUDENT | 2 |\n| student02 | 123456 | STUDENT | 3 |\n\n## 谁提供什么\n- **成员 B（9 个）**：登录、课程列表、课件列表、课件上传、课件删除、索引重构、会话历史、会话明细、点赞评价、教师查看问答记录\n- **成员 A（3 个，本集合仅登记形状，实现在 A 侧）**：智能答疑 SSE、知识点生成\n\n> ⚠️ 已知偏差：接口矩阵冻结的 SSE 路径是 `/api/qa/chat/stream`，但 A 当前实现挂在 `/api/sse/chat`。前端**请先按矩阵写 `/api/qa/chat/stream`**，A 侧对齐后再联调；此事已列入群内同步项。",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. 身份认证（B）",
+      "item": [
+        {
+          "name": "教师登录 teacher01",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('HTTP 200 且 code=200', () => {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(body.code).to.eql(200);",
+                  "});",
+                  "pm.test('返回 LoginVO 六字段', () => {",
+                  "    pm.expect(body.data).to.have.property('token');",
+                  "    pm.expect(body.data.role).to.eql('TEACHER');",
+                  "});",
+                  "// 自动写入环境变量，后续教师端请求直接复用",
+                  "pm.environment.set('teacherToken', body.data.token);",
+                  "console.log('teacherToken 已写入环境变量');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"teacher01\",\n  \"password\": \"123456\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] },
+            "description": "学生 / 教师统一登录入口。\n\n**本期没有注册接口**，不要找 `/api/auth/register`。\n\n返回 `data.token` 前端存 `localStorage`（键名 `satoken`），`data.role` 用于路由守卫。"
+          },
+          "response": [
+            {
+              "name": "200 登录成功",
+              "originalRequest": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": { "mode": "raw", "raw": "{\n  \"username\": \"teacher01\",\n  \"password\": \"123456\"\n}" },
+                "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json;charset=UTF-8" }],
+              "cookie": [],
+              "body": "{\n  \"code\": 200,\n  \"message\": \"操作成功\",\n  \"data\": {\n    \"token\": \"a1b2c3d4-e5f6-7890-abcd-ef1234567890\",\n    \"userId\": 1,\n    \"username\": \"teacher01\",\n    \"nickname\": \"李老师\",\n    \"role\": \"TEACHER\",\n    \"avatarUrl\": \"\"\n  },\n  \"timestamp\": 1757692800000\n}"
+            },
+            {
+              "name": "400 用户名或密码错误",
+              "originalRequest": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": { "mode": "raw", "raw": "{\n  \"username\": \"teacher01\",\n  \"password\": \"wrong\"\n}" },
+                "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json;charset=UTF-8" }],
+              "cookie": [],
+              "body": "{\n  \"code\": 400,\n  \"message\": \"用户名或密码错误\",\n  \"data\": null,\n  \"timestamp\": 1757692800000\n}"
+            }
+          ]
+        },
+        {
+          "name": "学生登录 student01",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('HTTP 200 且 code=200', () => {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(body.code).to.eql(200);",
+                  "});",
+                  "pm.test('role 为 STUDENT', () => pm.expect(body.data.role).to.eql('STUDENT'));",
+                  "pm.environment.set('studentToken', body.data.token);",
+                  "console.log('studentToken 已写入环境变量');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"student01\",\n  \"password\": \"123456\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] },
+            "description": "学生登录，token 写入 `studentToken` 环境变量。"
+          },
+          "response": [
+            {
+              "name": "200 登录成功",
+              "originalRequest": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": { "mode": "raw", "raw": "{\n  \"username\": \"student01\",\n  \"password\": \"123456\"\n}" },
+                "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json;charset=UTF-8" }],
+              "cookie": [],
+              "body": "{\n  \"code\": 200,\n  \"message\": \"操作成功\",\n  \"data\": {\n    \"token\": \"f9e8d7c6-b5a4-3210-fedc-ba9876543210\",\n    \"userId\": 2,\n    \"username\": \"student01\",\n    \"nickname\": \"张小明\",\n    \"role\": \"STUDENT\",\n    \"avatarUrl\": \"\"\n  },\n  \"timestamp\": 1757692800000\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. 课程（B）",
+      "item": [
+        {
+          "name": "课程列表",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{studentToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/course/list",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "course", "list"]
+            },
+            "description": "**返回裸数组，不是分页对象。**\n\n- TEACHER：只返回自己任课的课程（teacher_id = 当前登录 userId）\n- STUDENT：返回全部课程（本期 6 张表无选课关系表，学生默认可进任意课程）\n\n无请求参数。"
+          },
+          "response": [
+            {
+              "name": "200 课程数组",
+              "originalRequest": {
+                "method": "GET",
+                "header": [{ "key": "Authorization", "value": "Bearer {{studentToken}}" }],
+                "url": { "raw": "{{baseUrl}}/api/course/list", "host": ["{{baseUrl}}"], "path": ["api", "course", "list"] }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json;charset=UTF-8" }],
+              "cookie": [],
+              "body": "{\n  \"code\": 200,\n  \"message\": \"操作成功\",\n  \"data\": [\n    {\n      \"id\": 3,\n      \"courseName\": \"数据库系统原理\",\n      \"courseCode\": \"CS202403\",\n      \"teacherId\": 1,\n      \"description\": \"关系模型、SQL、事务与索引优化。\",\n      \"coverImage\": \"\",\n      \"isDeleted\": 0,\n      \"createdAt\": \"2026-09-12T10:00:00\",\n      \"updatedAt\": \"2026-09-12T10:00:00\"\n    },\n    {\n      \"id\": 2,\n      \"courseName\": \"计算机网络\",\n      \"courseCode\": \"CS202402\",\n      \"teacherId\": 1,\n      \"description\": \"TCP/IP 协议栈、路由与拥塞控制、应用层协议。\",\n      \"coverImage\": \"\",\n      \"isDeleted\": 0,\n      \"createdAt\": \"2026-09-12T10:00:00\",\n      \"updatedAt\": \"2026-09-12T10:00:00\"\n    },\n    {\n      \"id\": 1,\n      \"courseName\": \"操作系统原理\",\n      \"courseCode\": \"CS202401\",\n      \"teacherId\": 1,\n      \"description\": \"进程管理、内存管理、文件系统与并发控制。\",\n      \"coverImage\": \"\",\n      \"isDeleted\": 0,\n      \"createdAt\": \"2026-09-12T10:00:00\",\n      \"updatedAt\": \"2026-09-12T10:00:00\"\n    }\n  ],\n  \"timestamp\": 1757692800000\n}"
+            },
+            {
+              "name": "401 未登录",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{baseUrl}}/api/course/list", "host": ["{{baseUrl}}"], "path": ["api", "course", "list"] }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json;charset=UTF-8" }],
+              "cookie": [],
+              "body": "{\n  \"code\": 401,\n  \"message\": \"登录已过期，请重新登录\",\n  \"data\": null,\n  \"timestamp\": 1757692800000\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. 教师端 · 课件管理（B 接口 / A 切块）",
+      "item": [
+        {
+          "name": "课件列表",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{teacherToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/teacher/docs/list?courseId=1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "teacher", "docs", "list"],
+              "query": [{ "key": "courseId", "value": "1", "description": "课程 ID（必填）" }]
+            },
+            "description": "**返回裸数组，不是 IPage 分页对象**（D 端 `docList.value = await request.get(...)` 直接当数组用）。\n\n排序：按 `createdAt` 倒序（最新的课件在最上面）。\n\n越权保护：教师只能查自己任课课程的课件，非本人课程抛 403。"
+          },
+          "response": [
+            {
+              "name": "200 课件数组",
+              "originalRequest": {
+                "method": "GET",
+                "header": [{ "key": "Authorization", "value": "Bearer {{teacherToken}}" }],
+                "url": { "raw": "{{baseUrl}}/api/teacher/docs/list?courseId=1", "host": ["{{baseUrl}}"], "path": ["api", "teacher", "docs", "list"], "query": [{ "key": "courseId", "value": "1" }] }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json;charset=UTF-8" }],
+              "cookie": [],
+              "body": "{\n  \"code\": 200,\n  \"message\": \"操作成功\",\n  \"data\": [\n    {\n      \"id\": 12,\n      \"courseId\": 1,\n      \"fileName\": \"第3章_内存管理.pdf\",\n      \"filePath\": \"C:\\\\Users\\\\34677\\\\smartqa\\\\uploads\\\\1\\\\1757692000000_第3章_内存管理.pdf\",\n      \"fileSize\": 2485120,\n      \"fileType\": \"pdf\",\n      \"chunkCount\": 37,\n      \"parseStatus\": \"CHUNKED\",\n      \"errorMsg\": \"\",\n      \"isDeleted\": 0,\n      \"createdAt\": \"2026-09-12T20:26:40\",\n      \"updatedAt\": \"2026-09-12T20:27:02\"\n    },\n    {\n      \"id\": 1,\n      \"courseId\": 1,\n      \"fileName\": \"第1章_操作系统引论.pdf\",\n      \"filePath\": \"/tmp/smartqa-demo/第1章_操作系统引论.pdf\",\n      \"fileSize\": 0,\n      \"fileType\": \"pdf\",\n      \"chunkCount\": 0,\n      \"parseStatus\": \"PENDING\",\n      \"errorMsg\": \"\",\n      \"isDeleted\": 0,\n      \"createdAt\": \"2026-09-12T10:00:00\",\n      \"updatedAt\": \"2026-09-12T10:00:00\"\n    }\n  ],\n  \"timestamp\": 1757692800000\n}"
+            }
+          ]
+        },
+        {
+          "name": "课件上传（multipart/form-data）",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{teacherToken}}" }],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "courseId", "value": "1", "type": "text", "description": "课程 ID" },
+                { "key": "file", "type": "file", "src": [], "description": "PDF / DOCX / MD / TXT，≤50MB" }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/teacher/docs/upload",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "teacher", "docs", "upload"]
+            },
+            "description": "上传课件并**异步**触发切块向量化。\n\n流程：落盘 → 落库 → 状态直接置 `PARSING` → 在 `sseExecutor` 线程池异步调 A 的 `ingest(...)` → 成功置 `CHUNKED` 并写 `chunkCount`，失败置 `FAILED` 并写 `errorMsg`。\n\n**返回 `data` 是课件 ID（Long），不是对象。** 前端拿到后立刻把列表项乐观插入并开始 3 秒轮询 `/list`。\n\n限制：仅 pdf/docx/md/txt；文件名含 `/` `\\` `..` 一律 400（路径穿越防护）；>50MB 返回 400「文件超过 50MB 上限」。"
+          },
+          "response": [
+            {
+              "name": "200 返回课件 ID",
+              "originalRequest": {
+                "method": "POST",
+                "header": [{ "key": "Authorization", "value": "Bearer {{teacherToken}}" }],
+                "body": { "mode": "formdata", "formdata": [{ "key": "courseId", "value": "1", "type": "text" }, { "key": "file", "type": "file", "src": [] }] },
+                "url": { "raw": "{{baseUrl}}/api/teacher/docs/upload", "host": ["{{baseUrl}}"], "path": ["api", "teacher", "docs", "upload"] }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json;charset=UTF-8" }],
+              "cookie": [],
+              "body": "{\n  \"code\": 200,\n  \"message\": \"操作成功\",\n  \"data\": 13,\n  \"timestamp\": 1757692800000\n}"
+            },
+            {
+              "name": "400 格式不支持 / 文件超限",
+              "originalRequest": {
+                "method": "POST",
+                "header": [{ "key": "Authorization", "value": "Bearer {{teacherToken}}" }],
+                "body": { "mode": "formdata", "formdata": [{ "key": "courseId", "value": "1", "type": "text" }, { "key": "file", "type": "file", "src": [] }] },
+                "url": { "raw": "{{baseUrl}}/api/teacher/docs/upload", "host": ["{{baseUrl}}"], "path": ["api", "teacher", "docs", "upload"] }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json;charset=UTF-8" }],
+              "cookie": [],
+              "body": "{\n  \"code\": 400,\n  \"message\": \"仅支持 PDF / DOCX / MD / TXT 格式\",\n  \"data\": null,\n  \"timestamp\": 1757692800000\n}"
+            },
+            {
+              "name": "403 非本人任课课程",
+              "originalRequest": {
+                "method": "POST",
+                "header": [{ "key": "Authorization", "value": "Bearer {{teacherToken}}" }],
+                "body": { "mode": "formdata", "formdata": [{ "key": "courseId", "value": "999", "type": "text" }, { "key": "file", "type": "file", "src": [] }] },
+                "url": { "raw": "{{baseUrl}}/api/teacher/docs/upload", "host": ["{{baseUrl}}"], "path": ["api", "teacher", "docs", "upload"] }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json;charset=UTF-8" }],
+              "cookie": [],
+              "body": "{\n  \"code\": 403,\n  \"message\": \"无权操作该课程\",\n  \"data\": null,\n  \"timestamp\": 1757692800000\n}"
+            }
+          ]
+        },
+        {
+          "name": "课件删除（级联清向量）",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{teacherToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/teacher/docs/12",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "teacher", "docs", "12"],
+              "variable": [{ "key": "id", "value": "12", "description": "课件 ID" }]
+            },
+            "description": "删除课件。**后端会先调 A 的 `removeDocumentVectors(docId)` 清空该课件在向量库的全部切块，再逻辑删除 MySQL 记录**，防止「课件已删但学生提问仍检索到它的片段」（幽灵参考资料）。\n\n前端不需要做任何额外清理动作。\n\n课件不存在 → 400/404；非本人课程 → 403。"
+          },
+          "response": [
+            {
+              "name": "200 删除成功",
+              "originalRequest": {
+                "method": "DELETE",
+                "header": [{ "key": "Authorization", "value": "Bearer {{teacherToken}}" }],
+                "url": { "raw": "{{baseUrl}}/api/teacher/docs/12", "host": ["{{baseUrl}}"], "path": ["api", "teacher", "docs", "12"] }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json;charset=UTF-8" }],
+              "cookie": [],
+              "body": "{\n  \"code\": 200,\n  \"message\": \"操作成功\",\n  \"data\": true,\n  \"timestamp\": 1757692800000\n}"
+            },
+            {
+              "name": "404 课件不存在",
+              "originalRequest": {
+                "method": "DELETE",
+                "header": [{ "key": "Authorization", "value": "Bearer {{teacherToken}}" }],
+                "url": { "raw": "{{baseUrl}}/api/teacher/docs/99999", "host": ["{{baseUrl}}"], "path": ["api", "teacher", "docs", "99999"] }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json;charset=UTF-8" }],
+              "cookie": [],
+              "body": "{\n  \"code\": 404,\n  \"message\": \"课件不存在\",\n  \"data\": null,\n  \"timestamp\": 1757692800000\n}"
+            }
+          ]
+        },
+        {
+          "name": "索引重构 reindex（异步）",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{teacherToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/teacher/docs/12/reindex",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "teacher", "docs", "12", "reindex"],
+              "variable": [{ "key": "id", "value": "12", "description": "课件 ID" }]
+            },
+            "description": "重建课件索引：**先清旧向量**（否则重复切片）→ 状态回 `PARSING`、`chunkCount` 与 `errorMsg` 清零 → 异步在 `sseExecutor` 里重新切块 → 成功置 `CHUNKED`，失败置 `FAILED`。\n\n**立即返回 `data: true`，不代表切块已完成。** 前端收到后开始 3 秒轮询 `/list`，等 `parseStatus` 变成 `CHUNKED`/`FAILED` 再停。"
+          },
+          "response": [
+            {
+              "name": "200 已受理（异步执行中）",
+              "originalRequest": {
+                "method": "POST",
+                "header": [{ "key": "Authorization", "value": "Bearer {{teacherToken}}" }],
+                "url": { "raw": "{{baseUrl}}/api/teacher/docs/12/reindex", "host": ["{{baseUrl}}"], "path": ["api", "teacher", "docs", "12", "reindex"] }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json;charset=UTF-8" }],
+              "cookie": [],
+              "body": "{\n  \"code\": 200,\n  \"message\": \"操作成功\",\n  \"data\": true,\n  \"timestamp\": 1757692800000\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. 学生端 · 问答记录（B）",
+      "item": [
+        {
+          "name": "会话历史列表",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{studentToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/qa/sessions?courseId=1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "qa", "sessions"],
+              "query": [{ "key": "courseId", "value": "1", "description": "课程 ID（必填）" }]
+            },
+            "description": "**返回裸数组。** 只返回**当前登录学生自己**的会话，按 `updatedAt`（最后活跃时间）倒序。\n\n返回 `SessionVO` 只暴露 5 个前端字段（`id`/`courseId`/`sessionTitle`/`createdAt`/`updatedAt`），**不外泄 isDeleted 等内部列**。\n\n会话标题：懒创建时取首个问题的前 15 个字符。"
+          },
+          "response": [
+            {
+              "name": "200 会话数组",
+              "originalRequest": {
+                "method": "GET",
+                "header": [{ "key": "Authorization", "value": "Bearer {{studentToken}}" }],
+                "url": { "raw": "{{baseUrl}}/api/qa/sessions?courseId=1", "host": ["{{baseUrl}}"], "path": ["api", "qa", "sessions"], "query": [{ "key": "courseId", "value": "1" }] }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json;charset=UTF-8" }],
+              "cookie": [],
+              "body": "{\n  \"code\": 200,\n  \"message\": \"操作成功\",\n  \"data\": [\n    {\n      \"id\": 1,\n      \"courseId\": 1,\n      \"sessionTitle\": \"LRU 和 FIFO 该选哪个\",\n      \"createdAt\": \"2026-09-12T21:10:00\",\n      \"updatedAt\": \"2026-09-12T21:12:33\"\n    }\n  ],\n  \"timestamp\": 1757692800000\n}"
+            }
+          ]
+        },
+        {
+          "name": "会话明细（问答记录）",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{studentToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/qa/records?sessionId=1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "qa", "records"],
+              "query": [{ "key": "sessionId", "value": "1", "description": "会话 ID（必填）" }]
+            },
+            "description": "**返回裸数组。** 按 `createdAt` **正序**（前端直接从上往下渲染对话，不需要再排序）。\n\n⚠️ `groundingReferences` 是 **JSON 数组**（不是 JSON 字符串）——实体配了 `@TableName(autoResultMap = true)` + `@TableField(typeHandler = JacksonTypeHandler.class)`，所以 Jackson 序列化后直接是数组。元素结构同 `SseReferenceVO`。\n\n⚠️ `answer` 是 Markdown 原文，前端渲染需走 Markdown 管线；`answer` 可能很长，前端注意不要做逐字符 diff 重排。\n\n越权保护：非本人会话返回 403。"
+          },
+          "response": [
+            {
+              "name": "200 记录数组（正序）",
+              "originalRequest": {
+                "method": "GET",
+                "header": [{ "key": "Authorization", "value": "Bearer {{studentToken}}" }],
+                "url": { "raw": "{{baseUrl}}/api/qa/records?sessionId=1", "host": ["{{baseUrl}}"], "path": ["api", "qa", "records"], "query": [{ "key": "sessionId", "value": "1" }] }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json;charset=UTF-8" }],
+              "cookie": [],
+              "body": "{\n  \"code\": 200,\n  \"message\": \"操作成功\",\n  \"data\": [\n    {\n      \"id\": 1,\n      \"sessionId\": 1,\n      \"userId\": 2,\n      \"courseId\": 1,\n      \"question\": \"页面置换算法 LRU 和 FIFO 有什么区别？\",\n      \"answer\": \"### 核心差异\\n\\n**FIFO** 按页面进入内存的先后顺序淘汰，实现最简单，但会出现 Belady 异常。\\n\\n**LRU** 淘汰最久未被访问的页面，符合程序局部性原理，不会出现 Belady 异常。\",\n      \"groundingReferences\": [\n        {\n          \"docId\": 12,\n          \"fileName\": \"第3章 内存管理.pdf\",\n          \"chunkIndex\": 14,\n          \"score\": 0.88,\n          \"snippet\": \"虚拟内存分页机制中，页表存储了虚页号与物理页框号的映射关系，当访问的页不在内存中时触发缺页中断，由置换算法决定淘汰哪一页。\"\n        }\n      ],\n      \"feedbackRating\": 1,\n      \"latencyMs\": 1840,\n      \"isDeleted\": 0,\n      \"createdAt\": \"2026-09-12T21:10:05\"\n    }\n  ],\n  \"timestamp\": 1757692800000\n}"
+            },
+            {
+              "name": "403 非本人会话",
+              "originalRequest": {
+                "method": "GET",
+                "header": [{ "key": "Authorization", "value": "Bearer {{studentToken}}" }],
+                "url": { "raw": "{{baseUrl}}/api/qa/records?sessionId=999", "host": ["{{baseUrl}}"], "path": ["api", "qa", "records"], "query": [{ "key": "sessionId", "value": "999" }] }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json;charset=UTF-8" }],
+              "cookie": [],
+              "body": "{\n  \"code\": 403,\n  \"message\": \"无权查看他人会话\",\n  \"data\": null,\n  \"timestamp\": 1757692800000\n}"
+            }
+          ]
+        },
+        {
+          "name": "点赞 / 点踩",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{studentToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"status\": 1\n}" },
+            "url": {
+              "raw": "{{baseUrl}}/api/qa/records/1/feedback",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "qa", "records", "1", "feedback"],
+              "variable": [{ "key": "id", "value": "1", "description": "问答记录 ID" }]
+            },
+            "description": "**请求字段名必须是 `status`**（不是 rating / feedback）。取值只能是 `1`（点赞）或 `-1`（点踩），其余值（含 null、0）返回 400。\n\n**返回 `data: true`**（Boolean，不是记录对象）。前端点完直接本地翻转按钮选中态即可，不必重拉列表。\n\n越权保护：只能评价自己的提问，非本人记录 → 403。"
+          },
+          "response": [
+            {
+              "name": "200 成功",
+              "originalRequest": {
+                "method": "POST",
+                "header": [{ "key": "Authorization", "value": "Bearer {{studentToken}}" }, { "key": "Content-Type", "value": "application/json" }],
+                "body": { "mode": "raw", "raw": "{\n  \"status\": 1\n}" },
+                "url": { "raw": "{{baseUrl}}/api/qa/records/1/feedback", "host": ["{{baseUrl}}"], "path": ["api", "qa", "records", "1", "feedback"] }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json;charset=UTF-8" }],
+              "cookie": [],
+              "body": "{\n  \"code\": 200,\n  \"message\": \"操作成功\",\n  \"data\": true,\n  \"timestamp\": 1757692800000\n}"
+            },
+            {
+              "name": "400 status 非法值",
+              "originalRequest": {
+                "method": "POST",
+                "header": [{ "key": "Authorization", "value": "Bearer {{studentToken}}" }, { "key": "Content-Type", "value": "application/json" }],
+                "body": { "mode": "raw", "raw": "{\n  \"status\": 0\n}" },
+                "url": { "raw": "{{baseUrl}}/api/qa/records/1/feedback", "host": ["{{baseUrl}}"], "path": ["api", "qa", "records", "1", "feedback"] }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json;charset=UTF-8" }],
+              "cookie": [],
+              "body": "{\n  \"code\": 400,\n  \"message\": \"反馈状态只能是 1（点赞）或 -1（点踩）\",\n  \"data\": null,\n  \"timestamp\": 1757692800000\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5. 教师端 · 问答记录查看（B，只读）",
+      "item": [
+        {
+          "name": "分页查询学生提问明细",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{teacherToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/teacher/qa/records?courseId=1&pageNum=1&pageSize=10&keyword=LRU",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "teacher", "qa", "records"],
+              "query": [
+                { "key": "courseId", "value": "1", "description": "课程 ID（必填）" },
+                { "key": "pageNum", "value": "1", "description": "页码，从 1 开始，默认 1" },
+                { "key": "pageSize", "value": "10", "description": "每页条数，默认 10，服务端上限 100" },
+                { "key": "keyword", "value": "LRU", "description": "关键词，同时匹配 question 与 answer，可不传" }
+              ]
+            },
+            "description": "**返回 IPage 分页对象**（不是裸数组）：前端取 `data.records` 和 `data.total`。\n\n- 排序：按 `createdAt` 倒序\n- `pageSize` 服务端硬上限 100（超了会被分页插件截断）\n- **本接口纯只读**，没有任何修改 AI 回答（人工纠偏）的入口\n- 越权保护：教师只能查自己任课课程，否则 403\n\nIPage 额外字段：`size`（本页条数）、`current`（当前页）、`pages`（总页数）。"
+          },
+          "response": [
+            {
+              "name": "200 分页结果",
+              "originalRequest": {
+                "method": "GET",
+                "header": [{ "key": "Authorization", "value": "Bearer {{teacherToken}}" }],
+                "url": {
+                  "raw": "{{baseUrl}}/api/teacher/qa/records?courseId=1&pageNum=1&pageSize=10&keyword=LRU",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "teacher", "qa", "records"],
+                  "query": [
+                    { "key": "courseId", "value": "1" },
+                    { "key": "pageNum", "value": "1" },
+                    { "key": "pageSize", "value": "10" },
+                    { "key": "keyword", "value": "LRU" }
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json;charset=UTF-8" }],
+              "cookie": [],
+              "body": "{\n  \"code\": 200,\n  \"message\": \"操作成功\",\n  \"data\": {\n    \"records\": [\n      {\n        \"id\": 1,\n        \"sessionId\": 1,\n        \"userId\": 2,\n        \"courseId\": 1,\n        \"question\": \"页面置换算法 LRU 和 FIFO 有什么区别？\",\n        \"answer\": \"### 核心差异\\n\\n**FIFO** 按页面进入内存的先后顺序淘汰……\",\n        \"groundingReferences\": [\n          {\n            \"docId\": 12,\n            \"fileName\": \"第3章 内存管理.pdf\",\n            \"chunkIndex\": 14,\n            \"score\": 0.88,\n            \"snippet\": \"虚拟内存分页机制中，页表存储了虚页号与物理页框号的映射关系……\"\n          }\n        ],\n        \"feedbackRating\": 1,\n        \"latencyMs\": 1840,\n        \"isDeleted\": 0,\n        \"createdAt\": \"2026-09-12T21:10:05\"\n      }\n    ],\n    \"total\": 1,\n    \"size\": 10,\n    \"current\": 1,\n    \"pages\": 1\n  },\n  \"timestamp\": 1757692800000\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "6. 成员 A 侧接口（仅登记形状，实现在 A）",
+      "item": [
+        {
+          "name": "智能答疑 SSE（A 实现）",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{studentToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/qa/chat/stream?courseId=1&question=什么是LRU&sessionId=1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "qa", "chat", "stream"],
+              "query": [
+                { "key": "courseId", "value": "1", "description": "课程 ID" },
+                { "key": "question", "value": "什么是LRU", "description": "学生问题" },
+                { "key": "sessionId", "value": "1", "description": "会话 ID；首次提问传 0 或留空" }
+              ]
+            },
+            "description": "⚠️ **本接口由成员 A 实现，B 仅在此登记契约形状，便于前端对照。**\n\n**已知偏差（需群内同步）**：接口矩阵冻结路径为 `GET /api/qa/chat/stream`，A 当前实现挂在 `GET /api/sse/chat`。前端请先按矩阵写，等 A 对齐后再联调。\n\n响应 `Content-Type: text/event-stream`，事件类型：\n- `event: message` → `data: <token>` 逐 Token 推送\n- `event: references` → `data: [{docId,fileName,chunkIndex,score,snippet}]` 命中的课件出处（A 第二周补）\n- `event: done` → `data: {\"recordId\": 1, \"sessionId\": 1, \"latencyMs\": 1840}`（A 第二周补，recordId 来自 B 的 `saveStreamingRecord`）\n- `event: error` → `data: <错误信息>`\n\n限流：每用户每 60 秒最多 20 次，超限 429。\n\n注意 EventSource 无法自定义 Header，前端需用 token 走 query 或其他方案（A 侧确认）。"
+          },
+          "response": []
+        },
+        {
+          "name": "知识点生成（A 实现）",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{studentToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"courseId\": 1,\n  \"pointName\": \"页面置换算法 LRU 与 FIFO\"\n}" },
+            "url": {
+              "raw": "{{baseUrl}}/api/knowledge/generate",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "knowledge", "generate"]
+            },
+            "description": "⚠️ **本接口由成员 A 实现**，B 仅登记形状。请求体字段以 A 的最终实现为准（此处为接口矩阵与 MOCK 约定的示意）。\n\n限流：与 SSE 共用每用户每 60 秒 20 次的窗口。"
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": ["// 全局前置脚本（预留）"]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": ["// 全局断言（预留）"]
+      }
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080", "type": "string" }
+  ]
+}

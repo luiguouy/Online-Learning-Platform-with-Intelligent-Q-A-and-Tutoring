@@ -16,7 +16,9 @@
 | 4 | [`dev-docs/COLLABORATION_WORKFLOW.md`](dev-docs/COLLABORATION_WORKFLOW.md) | 全员必读 | **决策权 RACI、分支保护、PR/Review 门禁、CI、完成的定义（DoD）** |
 | 5 | [`dev-docs/AGENT_INSTRUCTIONS.md`](dev-docs/AGENT_INSTRUCTIONS.md) | 喂给 AI 的第一份文件 | Agent 禁令、application.yml 完整模板、线程池规范、冒烟验收清单 |
 | 6 | `dev-docs/MEMBER_X_DEV_GUIDE.md` | 各自认领 | 成员 A（RAG/SSE）、B（业务/DB）、C（学生前端）、D（教师前端） |
-| 7 | [`dev-docs/组员发指令速查卡.md`](dev-docs/组员发指令速查卡.md) | 复制即用 | 组员给 AI 发指令速查卡（含 A/B/C/D 专属第一条指令） |
+| 7 | [`dev-docs/COLLAB_AGENT_PROTOCOL.md`](dev-docs/COLLAB_AGENT_PROTOCOL.md) | **喂给 AI 的协作流程** | 组员 Agent 自动执行：认领 Issue → 开工移卡片 → 每日站会发评论 → 提 PR → 契约变更拦截 |
+| 8 | [`dev-docs/组员发指令速查卡.md`](dev-docs/组员发指令速查卡.md) | 复制即用 | 组员给 AI 发指令速查卡（含 A/B/C/D 专属第一条指令） |
+| 9 | [`dev-docs/群规与站会速查.md`](dev-docs/群规与站会速查.md) | 组长贴群公告 | 微信群使用规则（只转发链接+约会议）+ 看板操作口诀 |
 
 ### 配套工程资产
 
@@ -30,13 +32,22 @@
 
 > 以上工程资产在仓库根目录直接生效，提交 `backend/` 下的 Java 源码时 CI 流水线会自动触发校验。
 
-**契约定级规则**：若不同文档描述冲突，一律以 `dev-docs/DEV_SPECIFICATION.md` 第四章（接口契约）为准；其余以各自成员指南中"v1.1 审查回写"后的内容为准。发现新的冲突，停下问组长，不要自行发明。
+**冲突裁决表（唯一标准，Agent 与人都按此执行）**：
+
+| 冲突类型 | 以谁为准 |
+| :--- | :--- |
+| 接口路径 / 字段 / SSE 事件格式 | `DEV_SPECIFICATION.md` 第四章（4.2） |
+| 工期、功能范围、裁剪顺序 | `THREE_WEEK_PLAN.md` |
+| 协作流程（看板、站会、PR、Review、关单） | `COLLABORATION_WORKFLOW.md` + `COLLAB_AGENT_PROTOCOL.md`（后者是前者的 Agent 执行细则） |
+| 依赖版本 / 配置键 / 包结构红线 | `AGENT_INSTRUCTIONS.md` |
+| 某成员模块的实现细节 | 该成员的 `MEMBER_X_DEV_GUIDE.md`（但不得违反上述四行） |
+| 同一文件内部自相矛盾、或表上找不到归属 | **停下问组长，不要自行发明**；组长在对应 Issue 评论裁决并留痕 |
 
 ## 二、组员操作指南
 
 ### 开工前先背：三条保命纪律
 
-看不懂技术细节没关系，这三条**照做就行**。它们比任何一份文档都重要——文档管"怎么写对"，这三条管"写错了能当场发现"。
+看不懂技术细节没关系，这三条**照做就行**。文档管"怎么写对"，这三条管"写错了能当场发现"；内容冲突时按上面"冲突裁决表"判。
 
 **纪律 1：第 1~2 天只做技术验证，不写业务代码。**
 - 成员 A 必须先跑 `THREE_WEEK_PLAN.md` 3.2 节的 A1.1（Chroma 验证）和 A1.2（大模型连通验证），各半天。
@@ -63,6 +74,7 @@ AI 说"完成了"**不算数**，命令跑过才算数。每生成一个模块�
 
 ### 第 1 步：拿到自己的任务
 确认你对应成员 A / B / C / D（见 `TEAM_WORK_DIVISION.md` 第一章表格）。
+**本周任务已拆成 GitHub Issue 并指派到人**：看板 [https://github.com/users/luiguouy/projects/3](https://github.com/users/luiguouy/projects/3)，或让自己的 Agent 跑 `gh issue list --assignee @me --state open`（前提：本人先 `gh auth login` 一次）。Issue 正文里的"验收标准"就是你要做到的程度。
 
 ### 第 2 步：把文档喂给你的 AI Agent
 > 看不懂文档里的术语？先读 `GLOSSARY.md`，里面有"人话版"术语表和报错速查表。
@@ -70,17 +82,18 @@ AI 说"完成了"**不算数**，命令跑过才算数。每生成一个模块�
 打开你的 AI 编程工具，在新项目的**第一条消息**里按此模板发送：
 
 ```text
-请先完整阅读我提供的 3 份文档，严格遵照执行，不允许自由发挥：
+请先完整阅读我提供的 4 份文档，严格遵照执行，不允许自由发挥：
 1. AGENT_INSTRUCTIONS.md（全局禁令与配置模板，最高优先级）
 2. DEV_SPECIFICATION.md（编码与接口规范）
 3. MEMBER_<你的字母>_DEV_GUIDE.md（你负责模块的详细设计）
+4. COLLAB_AGENT_PROTOCOL.md（协作流程：开工移卡片、每日站会发 Issue、提 PR 的自动动作）
 
-我现在的任务是：<从你成员指南"第X章"里抄一个具体任务>。
+我现在的任务是：<从指派给我的 Issue 里抄任务编号与目标>。
 先列出你将创建/修改的文件清单让我确认，再开始写代码。
-每次写完后，对照 AGENT_INSTRUCTIONS.md 第四章的 7 项冒烟清单自查并报告结果。
+每次写完后，对照 AGENT_INSTRUCTIONS.md 第四章的 7 项冒烟清单自查并报告结果（第 1 周只需 1~3 项；4~7 项从第 2 周登录与 SSE 打通后开始适用）。
 ```
 
-把三份文档的文件拖进对话（或在 Claude Code 里 `@文件名` 引用）。
+把四份文档的文件拖进对话（或在 Claude Code 里 `@文件名` 引用）。
 
 ### 第 3 步：小步快跑，每一步都要能编译
 - 不要一次让 Agent "把整个后端写完"。按成员指南的章节拆小任务（如"只实现登录接口"）。
@@ -88,7 +101,7 @@ AI 说"完成了"**不算数**，命令跑过才算数。每生成一个模块�
 - Agent 说"完成了"不等于完成——要求它贴出编译/运行成功的输出。
 
 ### 第 4 步：提交代码
-按 `DEV_SPECIFICATION.md` 第一章执行：从 `dev` 分支拉 `feature/xxx` 分支，提交信息用 `feat(scope): 描述` 格式，发起 Pull Request 合并到 `dev`。**禁止把任何 API Key 写进代码或提交**（Key 放 `application-local.yml` 或环境变量，该文件已被 .gitignore 忽略）。
+按 `DEV_SPECIFICATION.md` 第一章执行：从 `dev` 分支拉 `feature/<你的字母>-<短名>` 分支（强制格式见 `COLLABORATION_WORKFLOW.md` 2.1），提交信息用 `feat(scope): 描述` 格式，发起 Pull Request 合并到 `dev`。**禁止把任何 API Key 写进代码或提交**（Key 放 `application-local.yml` 或环境变量，该文件已被 .gitignore 忽略）。
 
 ## 三、最重要的 6 条铁律（Agent 最容易违反的）
 
@@ -96,7 +109,7 @@ AI 说"完成了"**不算数**，命令跑过才算数。每生成一个模块�
    **严禁自行添加**统计图表、数据导出、人工纠偏、知识点自测题、多轮对话、语音输入等功能。**少做一个功能，比多做一个功能更有价值**（详见 `THREE_WEEK_PLAN.md` 第一节的功能范围表）。
 2. **单体 Spring Boot 工程**，严禁微服务/拆分多工程（包名 `com.smartqa.platform`）。
 3. **SSE 协议只有 4 种事件**：`references` / `message` / `done` / `error`，全部 JSON 载荷，`done` 必含 `recordId`——格式以 `DEV_SPECIFICATION.md` 4.2 为唯一标准。
-4. **所有 REST 接口返回 `Result<T>` 统一包装**，严禁裸返回。
+4. **所有 REST 接口返回 `Result<T>` 统一包装**，严禁裸返回。唯一例外：Sa-Token 鉴权拦截器与限流拦截器在 `preHandle` 里直接向 response 写 401/429 的 JSON（写法见 `MEMBER_B_DEV_GUIDE.md` 4.5/4.6，字段名必须与 `Result` 一致），因为拦截器阶段拿不到 Controller 返回值。
 5. **严禁硬编码密钥**；LLM Key、数据库密码一律环境变量注入。
 6. **前后端字段不许猜**：接口先由成员 B 出 Knife4j 文档，前端照文档调用。Token 存 `localStorage` 统一键名 `satoken`，请求头统一 `Authorization: Bearer <token>`——**头值必须带 `Bearer ` 前缀（含空格）**，只写裸 token 会被判未登录返回 401（见 `DEV_SPECIFICATION.md` 4.2）。
 
@@ -106,7 +119,7 @@ AI 说"完成了"**不算数**，命令跑过才算数。每生成一个模块�
 
 开工第一周必须先做两个技术验证（成员 A 负责，各半天）：
 1. **Chroma 元数据过滤验证**：确认 `langchain4j-chroma 0.35` 的 `EmbeddingSearchRequest.filter(IsEqualTo("courseId", ...))` 与 `removeAll(filter)` 真实可用。不可用则立即改用 LangChain4j 内置向量存储 + 本地文件持久化（成员 A 指南已允许此退路），并通知全员更新文档。
-2. **大模型连通验证**：用 `AGENT_INSTRUCTIONS.md` 的 yml 模板直连通义千问/DeepSeek 兼容接口，跑通一次流式输出；同时验证种子账号 `teacher01/123456` 能 BCrypt 登录。
+2. **大模型连通验证**：用 `AGENT_INSTRUCTIONS.md` 的 yml 模板直连通义千问/DeepSeek 兼容接口，跑通一次流式输出。（种子账号 `teacher01/123456` 的 BCrypt 登录验证属于成员 B 的第 1 周任务 B1.4/B1.8，不在 A 的 Day 1~2 验证范围内。）
 
 ## 五、 开工前必做：第 0 周准备清单
 

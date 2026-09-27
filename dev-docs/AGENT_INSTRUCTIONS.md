@@ -20,6 +20,7 @@
 4. **禁止空桩代码（No Mock Stubs）**：
    - 严禁在 Service 中写 `return null;` 或 `// TODO: implement later`。
    - 必须实现完整的数据库查询、异常抛出与逻辑校验。
+   - **唯一例外**：`THREE_WEEK_PLAN.md` 任务 **B1.5**——成员 B 在 Day 3 前交付给 A 的 `saveStreamingRecord` / `createSessionLazy` 两个方法，允许内部先返回假数据，但**方法签名与返回类型必须冻结**且必须打 `// B1.5 临时桩：A2.3 联调前由 B 替换为真实实现` 注释标明替换点。除此之外一律适用本禁令。
 5. **绝对禁止在代码和公共配置中硬编码真实生产密钥**：
    - 严禁将任何真实的大模型 API Key 或生产数据库密码提交至 Git 仓库。
    - 本地开发统一通过 `application-local.yml`（已加入 `.gitignore`）或环境变量（`${AI_API_KEY}`、`${MYSQL_PASSWORD}`）注入。公共 `application.yml` 中的占位默认值仅供本地离线沙箱开箱即用。
@@ -38,7 +39,7 @@ com.smartqa.platform
 │   └── BaseEntity.java              // id, createdAt, updatedAt
 ├── config/
 │   ├── MyBatisPlusConfig.java       // 分页插件与审计注入
-│   ├── SaTokenConfig.java           // Sa-Token 路由拦截器与权限配置
+│   ├── SaTokenConfigure.java        // Sa-Token 路由拦截器与权限配置
 │   ├── CorsConfig.java              // WebMvc 跨域配置
 │   ├── AsyncThreadPoolConfig.java   // 异步与SSE线程池配置
 │   └── LangChain4jConfig.java       // LLM、EmbeddingModel、EmbeddingStore Bean
@@ -137,6 +138,7 @@ rag:
     api-key: ${AI_API_KEY:sk-placeholder}
     chat-model: ${AI_CHAT_MODEL:deepseek-chat}    # 支持 deepseek-chat、qwen-plus 等；字段名固定为 chat-model
     temperature: 0.2
+    knowledge-temperature: 0.6   # 知识点精解场景专用温度（DEV_SPEC 6.1 要求答疑 0.2 / 精解 0.6）；知识点生成用独立 ChatModel Bean 读取本键
     max-tokens: 1500
     timeout-seconds: 60
   # 向量模型说明：已采用内置 BGE-Small-ZH 本地量化模型 (纯本地CPU计算，零Token费用，无远程接口依赖)
@@ -301,9 +303,9 @@ ON DUPLICATE KEY UPDATE id=id;
 
 ## 四、 AI Agent 联调自测准入清单 (Gatekeeper Checklist)
 
-在宣布编码完成前，Agent 必须自行验证通过以下 7 项冒烟测试：
+在宣布编码完成前，Agent 必须自行验证通过以下 7 项冒烟测试。**适用时机**：第 1~2 周做单个模块时跑第 1~3 项即可（前端第 2 项）；第 4~7 项依赖登录与 SSE 链路，从第 2 周（Day 11 前后）联调阶段起逐次适用，第 1 周跑不通属正常，不要为了凑清单去造假输出。
 1. **编译构建测试**：`mvn clean package -DskipTests` 执行成功，生成 jar 包无报错。
-2. **前端类型测试**：`pnpm run build` 或 `npm run build` 执行成功，无 TypeScript 类型错误。
+2. **前端类型测试**：必须先跑 `npx vue-tsc --noEmit`（零报错），再跑 `pnpm run build` 或 `npm run build` 成功。**注意：`vite build` 本身不做类型检查，build 通过 ≠ 类型测试通过**，vue-tsc 这一步不能省。
 3. **数据库连接测试**：Spring Boot 启动日志显示 Hikari 连接池初始化成功，表结构自动加载无语法异常。
 4. **鉴权闭环测试**：使用 `teacher01` / `123456` 登录成功，拿到 token 并成功访问 `/api/teacher/docs/list`。
 5. **文件上传测试**：上传一份带有文字的测试 PDF，控制台无 OOM 异常，文件保存在指定上传路径，状态变为 `CHUNKED`。
