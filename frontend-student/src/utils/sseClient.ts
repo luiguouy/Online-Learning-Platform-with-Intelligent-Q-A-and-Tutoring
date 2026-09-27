@@ -121,8 +121,9 @@ export class SseChatClient {
 
         onmessage(msg) {
           // 通过 event 字段区分 4 类事件，全部按 JSON 处理（契约要求）
-          console.debug('[sseClient] event =', msg.event, 'data =', msg.data);
-
+          // C3.2：这里原先对每一帧打一条 console.debug（含 data 全文）。SSE 是按 token 推的，
+          // 一段 500 字回答会产生上千次 console I/O 并重复打印整段正文 —— 控制台被刷爆，
+          // 每次打印还要拼字符串，纯属给主线程添负担。失败原因由外层 catch 的 notifyError 统一暴露。
           switch (msg.event as SseEventName) {
             case 'references': {
               const references = parseJson<SseReference[]>(msg.data) ?? [];
@@ -172,7 +173,6 @@ export class SseChatClient {
     } catch (error: unknown) {
       // 用户主动中断（停止生成 / 切换会话）不是错误，不回调 onError
       if (error instanceof Error && error.name === 'AbortError') {
-        console.debug('[sseClient] 流式请求已被主动中断');
         return;
       }
       notifyError(error instanceof Error ? error.message : String(error));

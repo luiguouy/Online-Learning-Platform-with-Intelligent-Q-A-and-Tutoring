@@ -53,6 +53,16 @@ public class TeacherDocumentController {
     /** 允许上传的课件扩展名白名单（大小写不敏感） */
     private static final Pattern ALLOWED_EXTENSION = Pattern.compile("(?i).+\\.(pdf|docx|md|txt)$");
 
+    /**
+     * 文件名长度上限（含扩展名）。
+     *
+     * <p>落盘路径形如 {@code {upload-dir}/{courseId}/{时间戳}_{文件名}}，时间戳前缀约 14 位。
+     * Windows 单个路径分量上限 255 字符，因此文件名必须留出余量：
+     * 超长文件名会直接触发 {@code FileNotFoundException(文件名、目录名或卷标语法不正确)}
+     * 并被兜底成 500 —— 这是用户输入问题，应当前置拦截为 400。</p>
+     */
+    private static final int MAX_FILE_NAME_LENGTH = 200;
+
     private final CourseDocumentService docService;
     private final CourseService courseService;
     private final DocumentIngestionService ingestionService;
@@ -85,6 +95,11 @@ public class TeacherDocumentController {
         if (originalName.contains("/") || originalName.contains("\\") || originalName.contains("..")) {
             throw new BusinessException("文件名非法");
         }
+        // 【边界】文件名过长：落盘会拼成 {时间戳}_{文件名}，Windows 单路径分量上限 255，
+        //        超限时 transferTo 抛 IOException 被兜底成 500。这里前置拦成 400。
+        if (originalName.length() > MAX_FILE_NAME_LENGTH) {
+            throw new BusinessException("文件名过长（最多 " + MAX_FILE_NAME_LENGTH + " 个字符），请重命名后重试");
+        }
         // 【安全】再剥离一次目录，只保留纯文件名（双保险）
         String safeName = new File(originalName).getName();
 
@@ -96,7 +111,16 @@ public class TeacherDocumentController {
         if (parent != null && !parent.exists() && !parent.mkdirs()) {
             throw new BusinessException(500, "上传目录创建失败，请检查 file.upload-dir 配置");
         }
-        file.transferTo(dest);
+        try {
+            file.transferTo(dest);
+        } catch (IOException e) {
+            // 兜底：非法字符、路径超长、磁盘满、权限不足等落盘失败，统一转成可读提示。
+            // 【审查 M1】不得把 e.getMessage() 拼进响应：Windows 下 FileNotFoundException 的
+            // message 含上传目录绝对路径与落盘命名规则（时间戳前缀），会泄漏服务器路径，
+            // 性同 dev 上刚移除 filePath 下发的加固（2b9a78c）。细节全进日志，响应只给可执行提示。
+            log.error("课件落盘失败, courseId={}, fileName={}, dest={}", courseId, originalName, savedPath, e);
+            throw new BusinessException(500, "文件保存失败，请重命名文件（避免特殊字符）后重试，若仍失败请联系管理员");
+        }
 
         // 2. 落库并直接把状态推进到 PARSING（切块任务紧接着提交，不存在真正的排队期）
         CourseDocument doc = CourseDocument.builder()

@@ -51,9 +51,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  *
  * 覆盖场景（DoD 第 2 层「3 个边界」+ 契约核对）：
  *   1. 首问懒建会话：references 首包 + {"delta"} 帧 + done 含 recordId，qa_record 真落库、出处快照正确
- *   2. 超长提问：正常出流，question/answer 完整落库不截断
- *   3. 续问复用会话：不再新建 qa_session
- *   4. 越权访问他人会话（seed session 1 属 student01）：error {"errorCode":403}，不落库
+ *   2. 超长提问（> 1600 字业务上限）：event:error {errorCode:4000} 友好拦截，不落库、不断连
+ *      （B3.1 修复点：此前会走到协议层被 Tomcat 431 断连，前端看不到任何原因）
+ *   3. 边界值提问（恰好 1600 字）：放行出流，锁定「上限含端点」语义
+ *   4. 续问复用会话：不再新建 qa_session
+ *   5. 越权访问他人会话（seed session 1 属 student01）：error {"errorCode":403}，不落库
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -177,16 +179,43 @@ class SseWiringIntegrationTest {
     }
 
     @Test
-    @DisplayName("边界1：超长提问（10000 字）正常出流，question 完整落库")
+    @DisplayName("边界1：超长提问（1800 字 > 1600 上限）被业务上限拦截为 error 4000，不落库")
     void oversizedQuestion() throws Exception {
-        String question = "虚拟内存".repeat(2500);
+        // MAX_QUESTION_LENGTH = 1600（见 SseChatController）；1800 字超出业务上限。
+        // 【审查 H1】长度刻意落在「业务上限外、协议上限内」（1800 字 URL 编码后 ≈16200 字节
+        // < 实测协议上限 16370）——真实 HTTP 客户端发的这条请求也能进到业务拦截拿到 4000；
+        // 超出协议上限的区间（真实请求会被 Tomcat 无信息 431 掉）由 SseProtocolBoundaryTest
+        // 走真实协议栈单独锁定——本类的 MockMvc 把参数直塞 parameterMap，不经请求行解析，覆盖不到那一层。
+        String question = "虚拟内存".repeat(450); // 4 字 × 450 = 1800 字 > 1600
         String body = stream(question, 0L);
 
+        JsonNode error = jsonOfEvent(body, "error");
+        assertEquals(4000, error.path("errorCode").asInt(), "超长提问应为业务参数错误码 4000");
+        assertTrue(error.path("message").asText().contains("过长"),
+                "错误消息应说明提问过长，实际：" + error.path("message").asText());
+        assertEquals(List.of("error"), sseEventNames(body),
+                "超长提问只应收到 error，不得进入推流，实际报文：" + body);
+
+        // 不得落库（未进入推流即不应产生 qa_record）
+        assertEquals(0, qaRecordService.count(Wrappers.<QaRecord>lambdaQuery()
+                .eq(QaRecord::getUserId, 3L)), "被拦截的超长提问不得产生问答记录");
+    }
+
+    @Test
+    @DisplayName("边界1b：提问恰好等于上限（1600 字）应放行出流（边界含端点）")
+    void questionAtUpperBound() throws Exception {
+        // 1600 字 × 约 9 字节/字（中文 URL 编码）≈ 14400 字节 < 协议上限 16370 字节，
+        // 因此能进到 Controller 并通过业务校验。此用例锁定「上限含端点」的语义，
+        // 防止日后有人把校验写成 >= 而静默收紧契约。
+        String question = "虚".repeat(1600);
+        String body = stream(question, 0L);
+
+        assertTrue(sseEventNames(body).contains("done"),
+                "恰好 1600 字应放行并以 done 正常收尾，实际报文：" + body);
         JsonNode done = jsonOfEvent(body, "done");
         QaRecord record = qaRecordService.getById(done.path("recordId").asLong());
         assertNotNull(record);
-        assertEquals(question, record.getQuestion(), "超长提问不得截断");
-        assertTrue(sseEventNames(body).contains("done"));
+        assertEquals(question, record.getQuestion(), "边界值提问不得截断");
     }
 
     @Test

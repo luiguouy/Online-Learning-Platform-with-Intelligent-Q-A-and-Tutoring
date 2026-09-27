@@ -3,12 +3,15 @@ package com.smartqa.platform.common;
 import cn.dev33.satoken.exception.NotLoginException;
 import cn.dev33.satoken.exception.NotRoleException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
  * 全局统一异常处理器
@@ -76,6 +79,44 @@ public class GlobalExceptionHandler {
     public Result<Void> handleMaxUploadSize(MaxUploadSizeExceededException e) {
         log.warn("上传文件超过大小上限: {}", e.getMessage());
         return Result.fail(400, "文件超过 50MB 上限，请压缩后重试");
+    }
+
+    /**
+     * 路径 / 查询参数类型不匹配 (400)
+     *
+     * <p>例如 {@code /api/qa/records?sessionId=abc}、{@code courseId=9999999999999999999}（超 Long 上限）。
+     * 这是<b>用户把参数传错</b>，不是服务故障；不捕获会被兜底成 500，前端无法区分，
+     * 且会在日志里制造大量假 ERROR 噪声。</p>
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public Result<Void> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
+        log.warn("参数类型不匹配: name={}, value={}", e.getName(), e.getValue());
+        return Result.fail(400, "参数格式不正确：" + e.getName());
+    }
+
+    /**
+     * 请求体不可读 (400)
+     *
+     * <p>覆盖 JSON 语法错误、字段类型不匹配（如 {@code {"status":"abc"}} 反序列化到 Integer）、
+     * 必填体缺失等场景，统一转成可读提示而不是 500。</p>
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public Result<Void> handleNotReadable(HttpMessageNotReadableException e) {
+        log.warn("请求体解析失败: {}", e.getMessage());
+        return Result.fail(400, "请求体格式不正确，请检查字段类型");
+    }
+
+    /**
+     * 静态资源 / 接口路径不存在 (404)
+     *
+     * <p>Spring MVC 6 对未匹配的路径抛 {@link NoResourceFoundException}，
+     * 若被下面的兜底 500 捕获，前端把路径拼错时只会看到"系统繁忙"，极难排查。
+     * 这里明确回 404，让调用方一眼看出是路径问题。</p>
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public Result<Void> handleNoResource(NoResourceFoundException e) {
+        log.warn("请求路径不存在: {}", e.getResourcePath());
+        return Result.fail(404, "请求的接口或资源不存在：/" + e.getResourcePath());
     }
 
     /**
