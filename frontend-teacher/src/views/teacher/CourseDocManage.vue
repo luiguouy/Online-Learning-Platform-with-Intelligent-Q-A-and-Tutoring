@@ -142,11 +142,17 @@ async function loadDocs(silent = false): Promise<void> {
   const courseId = currentCourseId.value;
   if (courseId === null) return;
 
-  const seq = ++listReqSeq;
+  // 只有「用户主动动作」（切课程 / 手动刷新 / 上传后刷新）才推进课程代；
+  // 自动轮询（silent）**不推进** —— 否则慢网络（响应耗时 > 3s 轮询间隔）下，
+  // 每个在途响应返回时都已被后续轮询作废 → 被守卫丢弃 → syncPolling() 永不执行，
+  // 于是「2 分钟超时保护」与「列表刷新」双双失效（后端已 CHUNKED，页面仍停在处理中）。
+  // 轮询是同一课程的重复请求，本就不需要互相作废；只有切课程才需要（复核 P2）。
+  if (!silent) listReqSeq += 1;
+  const seq = listReqSeq;
   if (!silent) loading.value = true;
   try {
     const list = await fetchDocList(courseId);
-    // 过期响应：期间已发起更新的请求（多为再次切课程）→ 丢弃，不写 docList、不触发 syncPolling
+    // 过期响应：期间用户切过课程（或手动刷新过）→ 丢弃，不写 docList、不触发 syncPolling
     if (seq !== listReqSeq) return;
     docList.value = list;
     syncPolling();
