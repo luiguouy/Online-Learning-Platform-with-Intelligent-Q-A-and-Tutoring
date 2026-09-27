@@ -60,12 +60,14 @@
 > - **Q17 已落地**：`CourseDocManage.vue` 加轮询兜底——3 秒轮询 + **最长 2 分钟自动停** + 页面「刷新」按钮（手动刷新与上传成功都会重置 2 分钟窗口），超时展示 `el-alert` 告示条。
 > - **Q7~Q13 待成员 B**：已在 `src/types/index.ts`、`src/api/teacher.ts` 标 `TODO` 注明当前口径，不阻塞本周。
 
-> **D3.1（2026-09-23）：全链路端到端测试 + P2-1 修复**
-> - **测试报告**：见工作区根 `D-D3.1-测试报告与缺陷清单.md`（30 用例 / 28 通过；**D 侧 P0/P1 = 0**）
-> - **P2-1 修复（本目录代码改动）**：课件页「上传时间」原为 `<el-table-column prop="createdAt" />` **直接绑定原始 ISO 串**（显示 `2026-09-23T10:42:26`），改为调用 `formatDateTime()`；同时把问答记录页的本地 `formatTime` **抽到 `src/utils/format.ts` 共用**，消除「同一项目两处处理不一致」
->   - 静态验证：`node node_modules/vue-tsc/bin/vue-tsc.js --noEmit` **退出码 0**；`node node_modules/vite/bin/vite.js build` **退出码 0**（6.63s）
->   - 浏览器实测（1440×900）：课件页显示 `2026-09-23 10:42:26` ✅；**回归**问答记录页 `consoleErr=0`、时间列正常 ✅
-> - **已知观感项 P2-4**：窄视口（≤约 1330px）下「上传时间」列尾部会被 `fixed="right"` 的「操作」列遮挡；**属既有问题**（该列列宽定义前后未变，非本次引入），宽屏完全正常 —— 是否调整列宽待定
+> **D3.1（09-23 起，09-27 收口）：全链路端到端测试 + P2-1 / 上传口径修复**
+> - **测试报告（已入库）**：`dev-docs/D3-第三周交付与验收报告.md` —— D 侧 30 用例 / 28 通过 + **跨端链路 6 项全通**；**D 侧 P0 = 0，P1 全部闭环**
+> - **P2-1 修复**：课件页「上传时间」原为 `prop` 直绑 ISO 原始串，改用 `formatDateTime()`；本地 `formatTime` 抽到 `src/utils/format.ts`（两页共用，消除同项目两处不一致）
+> - **上传大小口径对齐（Issue #46 裁决）**：`DocUploadModal.vue` 上限 **50MB → 20MB**（常量 / 常量注释 / 提示文案 / 校验变量名 `isLt50M→isLt20M` 共 4 处），与后端解析层 `rag.ingest.max-file-bytes` 一致；后端与 multipart 配置均未改动
+> - **跨端链路实测**：学生提问 → `event:references`（命中 `第3章 内存管理.pdf`，相关度 **0.887**）→ `event:message` 流式 → `event:done`（含 recordId）→ **教师端问答记录可见**（含 4 条参考出处）
+>   - 静态验证：`node node_modules/vue-tsc/bin/vue-tsc.js --noEmit` **退出码 0**；`node node_modules/vite/bin/vite.js build` **退出码 0**
+>   - 浏览器实测（1440×900）：课件页显示 `2026-09-23 10:42:26` ✅；**回归**问答记录页 `consoleErr=0` ✅
+> - **已知观感项 P2-4**：窄视口（≤约 1330px）下「上传时间」列尾部被 `fixed="right"` 的「操作」列遮挡；**属既有问题**（列宽定义前后未变），经 A 评审决定**单列一条**追踪
 
 ---
 
