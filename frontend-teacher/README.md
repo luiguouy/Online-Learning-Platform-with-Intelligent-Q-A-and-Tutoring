@@ -60,6 +60,16 @@
 > - **Q17 已落地**：`CourseDocManage.vue` 加轮询兜底——3 秒轮询 + **最长 2 分钟自动停** + 页面「刷新」按钮（手动刷新与上传成功都会重置 2 分钟窗口），超时展示 `el-alert` 告示条。
 > - **Q7~Q13 待成员 B**：已在 `src/types/index.ts`、`src/api/teacher.ts` 标 `TODO` 注明当前口径，不阻塞本周。
 
+> **D3.1（09-23 起，09-27 收口）：全链路端到端测试 + P2-1 / 上传口径 / 竞态修复**
+> - **测试报告（已入库）**：`dev-docs/D3-第三周交付与验收报告.md` —— D 侧 30 用例 / 28 通过 + **跨端链路 6 项全通**；**D 侧 P0 = 0，P1 全部闭环**
+> - **P2-1 修复**：课件页「上传时间」原为 `prop` 直绑 ISO 原始串，改用 `formatDateTime()`；本地 `formatTime` 抽到 `src/utils/format.ts`（两页共用，消除同项目两处不一致）
+> - **上传大小口径对齐（Issue #46 裁决）**：`DocUploadModal.vue` 上限 **50MB → 20MB**（常量 / 常量注释 / 提示文案 / 校验变量名 `isLt50M→isLt20M` 共 4 处），与后端解析层 `rag.ingest.max-file-bytes` 一致；后端与 multipart 配置均未改动
+> - **跨端链路实测**：学生提问 → `event:references`（命中 `第3章 内存管理.pdf`，相关度 **0.887**）→ `event:message` 流式 → `event:done`（含 recordId）→ **教师端问答记录可见**（含 4 条参考出处）
+>   - 静态验证：`node node_modules/vue-tsc/bin/vue-tsc.js --noEmit` **退出码 0**；`node node_modules/vite/bin/vite.js build` **退出码 0**
+>   - 浏览器实测（1440×900）：课件页显示 `2026-09-23 10:42:26` ✅；**回归**问答记录页 `consoleErr=0` ✅
+> - **竞态修复（`2701c20`，源自第三方代码审查复核）**：① 课件页 `loadDocs` 加请求序号守卫 `listReqSeq` —— 连续切课程时「旧课程的慢响应后到、覆盖新课程列表」不再发生；② `refreshManually` 连 `pollDeadline` 一并重置，避免「点了刷新却提示已停止自动刷新」且轮询不恢复。**`loading` 有意不参与守卫**（自己开的自己关，否则被 silent 轮询请求接管后遮罩永远关不掉）。验证：`vue-tsc` / `vite build` 双 0；穷尽确认 `docList` 唯一写入点在守卫之后；浏览器回归（切课→列表跟随变化→切回恢复）通过
+> - **已知观感项 P2-4**：窄视口（≤约 1330px）下「上传时间」列尾部被 `fixed="right"` 的「操作」列遮挡；**属既有问题**（列宽定义前后未变），经 A 评审决定**单列一条**追踪
+
 ---
 
 ## 二、如何运行
@@ -101,6 +111,7 @@ src/
 ├── styles/global.css       # reset + 主题变量（主色 Indigo #4F46E5）
 ├── types/                  # 全局类型（状态机四态、接口返回结构）
 ├── utils/request.ts        # axios 统一封装（自动带 Authorization 头、解包 Result）
+├── utils/format.ts         # 时间格式化 formatDateTime（D3.1 新增，课件页 + 问答记录页共用）
 └── views/
     ├── auth/LoginView.vue
     └── teacher/
