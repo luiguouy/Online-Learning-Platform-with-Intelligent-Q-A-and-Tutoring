@@ -50,8 +50,11 @@ public class SseChatController {
      *
      * <p><b>本值与 {@code application.yml} 的 {@code server.max-http-request-header-size}
      * 是配套的，不能单独改。</b>契约把 question 放在 GET query string，Tomcat 在
-     * {@code Http11InputBuffer.parseRequestLine} 处对「请求行 + 所有请求头」做长度校验，
-     * 超限的请求<b>根本进不到本方法</b>，容器直接返回 HTTP 400，前端 EventSource
+     * {@code Http11InputBuffer.fill()} 与 {@code parseHeaders()} 两处比较 {@code byteBuffer}
+     * 的位置与 {@code headerBufferSize}（请求行与请求头共用同一字节预算，故请求行也计入；
+     * {@code parseRequestLine} 自身不含该校验 —— 已反编译 tomcat-embed-core 10.1.31 核实），
+     * 超限抛 {@code IllegalArgumentException}（键 {@code iib.requestheadertoolarge.error}）：
+     * 请求<b>根本进不到本方法</b>，容器直接返回 HTTP 400，前端 EventSource
      * 只能看到一个没有任何信息的失败。</p>
      *
      * <p>实测（原始 socket 二分 + 精确记账；Tomcat 10.1 / Spring Boot 3.3.5）：
@@ -66,15 +69,18 @@ public class SseChatController {
      * 也就是说"超长提问走 event:error 友好返回"这条保障，依赖 64KB 那项配置成立。</p>
      *
      * <p><b>无需再做 UTF-8 字节级校验</b>（2026-09-30 实测定论，<b>勿按旧数据加回</b>）：
-     * 协议上限 65536 字节，而本值 1600 个字符即便全是 4 字节字符（emoji / CJK 扩展 B），
-     * 也只 ≈19200 编码字节，离天花板尚远，且超限返回 HTTP 400 而非 431。</p>
+     * 本闸的输入上界<b>只取决于字符数、与字符组成无关</b> —— 见下段，length() 不超过 1600 时
+     * UTF-8 字节恒 ≤ 4800，URL 编码后 ≤ 14400，占 65536 预算的 22%，离天花板尚远；
+     * 且超限返回 HTTP 400 而非 431。</p>
      *
      * <p>曾并存过一个 {@code MAX_QUESTION_UTF8_BYTES=5300} 字节闸，已按审查裁定整条移除。
      * 移除的<b>真正理由</b>是它<b>不可达（死代码）</b>：{@code String.length()} 计的是
      * UTF-16 码元，而每个 UTF-16 码元最多产出 3 个 UTF-8 字节（ASCII = 1；3 字节 CJK = 3；
-     * 4 字节 emoji 是代理对，4 字节 / 2 码元 = 2）。故 length() 不超过 1600 时，
-     * UTF-8 字节最多 3 x 1600 = 4800，恒小于 5300 —— 字节分支<b>永远不可能在字符分支
-     * 为 false 时单独成立</b>，它对可观测行为零贡献，任何测试都无法区分它在与不在。
+     * 4 字节 emoji 是代理对，4 字节 / 2 码元 = 2；穷举全部 1,114,112 个码位，
+     * (码元数, 字节数) 只有 (1,1)/(1,2)/(1,3)/(2,4) 四种，比值上限恰为 3）。
+     * 故 length() 不超过 1600 时，UTF-8 字节最多 3 x 1600 = 4800，恒小于 5300 ——
+     * 字节分支<b>永远不可能在字符分支为 false 时单独成立</b>，它对可观测行为零贡献，
+     * 任何测试都无法区分它在与不在。
      * （附：审查意见里"1600 个 4 字节字符会先于字符闸触发"的算例不成立 ——
      * 1600 个 emoji 的 length() 是 3200，拦下它的是本字符闸。此处以实测算术为准。）</p>
      *

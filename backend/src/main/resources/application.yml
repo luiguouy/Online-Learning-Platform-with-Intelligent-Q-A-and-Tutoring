@@ -4,8 +4,9 @@ server:
   # 提问长度上限（与 SseChatController.MAX_QUESTION_LENGTH 配套，勿单独改）
   #
   # 背景：SSE 接口 GET /api/qa/chat/stream 把 question 放在 query string（契约冻结为 GET）。
-  # Tomcat 在 Http11InputBuffer.parseRequestLine 处对「请求行 + 所有请求头」做长度校验，
-  # 超限抛 IllegalArgumentException: Request header is too large，
+  # Tomcat 在 Http11InputBuffer.fill() / parseHeaders() 处做长度校验（比较 byteBuffer 位置与
+  # headerBufferSize；parseRequestLine 自身不含该校验，请求行与请求头共用同一字节预算），
+  # 超限抛 IllegalArgumentException: Request header is too large（键 iib.requestheadertoolarge.error），
   # 容器直接返回 HTTP 400，**请求根本进不到 Controller**，前端 EventSource 只看到无信息失败。
   #
   # 【实测数据：原始 socket 二分逼近 + 精确记账；本机 Tomcat 10.1 / Spring Boot 3.3.5】

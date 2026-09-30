@@ -29,7 +29,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * SSE question 查询串「业务上限」真实协议栈回归测试（PR#41 审查 H1 修复配套）。
  *
  * <p>SseWiringIntegrationTest 走 MockMvc：参数直塞 parameterMap，<b>完全绕过</b>
- * Tomcat {@code Http11InputBuffer.parseRequestLine}，覆盖不到「请求真正经协议层进来后
+ * Tomcat {@code Http11InputBuffer} 的请求行/请求头长度校验（{@code fill()} / {@code parseHeaders()}
+ * 比较 {@code byteBuffer} 位置与 {@code headerBufferSize}），覆盖不到「请求真正经协议层进来后
  * 能否拿到友好业务码」这条链路。本类以 RANDOM_PORT + TestRestTemplate 起<b>真实 HTTP 栈</b>，
  * 端到端锁定 B3.1「超长提问从无信息断连改为 event:error {errorCode:4000} 友好返回」：</p>
  * <ol>
