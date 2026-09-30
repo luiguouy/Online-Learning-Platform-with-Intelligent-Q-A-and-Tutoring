@@ -12,12 +12,15 @@
     pwsh -File scripts/graft-build.ps1            # 建图
     pwsh -File scripts/graft-build.ps1 -Map       # 建图后顺便打印仓库地图概览
     pwsh -File scripts/graft-build.ps1 -Viz       # 建图后启动交互式可视化(本地 4400 端口)
+    pwsh -File scripts/graft-build.ps1 -Check     # 只检查图谱是否过时(不重建)，exit 1 = 已过时
 #>
 [CmdletBinding()]
 param(
     [switch]$Map,   # 建图后输出 token 预算内的目录/热点概览
     [switch]$Viz,   # 建图后启动本地交互式可视化服务
-    [switch]$Check  # 只做「图谱是否过时」检查（CI 用），不重建
+    [switch]$Check  # 只做「图谱是否过时」检查，不重建；exit 1 = 已过时
+                    # ⚠️ 用于**本地**开工前/提交前，不要加进 CI：graft/ 不入库，
+                    #    CI 上没有既有图谱可比对（详见 GRAFT_USAGE.md「团队约定与注意事项」）
 )
 
 $ErrorActionPreference = 'Stop'
