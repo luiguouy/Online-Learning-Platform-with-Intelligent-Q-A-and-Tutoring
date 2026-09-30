@@ -140,7 +140,7 @@ src/
   </script>
   ```
 - **样式规范**：
-  - 统一使用 `<style scoped>` 或 Tailwind CSS 工具类，严禁污染全局全局样式选择器。
+  - 统一使用 `<style scoped>`，严禁污染全局样式选择器。
   - Element Plus 表格、按钮的色彩需统一遵循设计主题（主色采用 Indigo `#4F46E5`）。
 
 #### 3.2.1 附录：跨端视觉基线（两端一致性约定）
@@ -207,14 +207,14 @@ grep -c tailwind frontend-{teacher,student}/package.json
 grep -rn "border-radius" frontend-{teacher,student}/src
 ```
 
-**（5）⚠️ 提请确认：本节正文有一处与实现不一致**
+**（5）✅ 已收口：本节正文与实现的一处不一致（Issue #60）**
 
-本节正文「样式规范」写有「统一使用 `<style scoped>` **或 Tailwind CSS 工具类**」，但实测：
+本节正文「样式规范」原写有「统一使用 `<style scoped>` **或 Tailwind CSS 工具类**」，但实测：
 
 - 两端 `package.json` 的 `dependencies` **均无任何 Tailwind 相关项**，实际实现统一为 `<style scoped>`；
 - `D-AI约束.md` 的依赖白名单**亦不含 Tailwind**。
 
-建议把该句中的「或 Tailwind CSS 工具类」删去。**该处属规范正文修改，本附录未擅自改动，提请组长确认后另行处理。**
+**处置结果**：组长已确认，正文该句的「或 Tailwind CSS 工具类」**已删去**，同时修正同行笔误「污染全局全局样式选择器」→「污染全局样式选择器」。正文与本附录现已一致，原「提请确认」 note 由本条取代，Issue #60 关闭。
 
 ### 3.3 SSE 流式通信与 Markdown 渲染安全
 - **流式请求管理**：推荐使用 `@microsoft/fetch-event-source` 库，在用户切换会话或离开页面时，**必须调用 `abort()` 中断未完成的 SSE 流**，防止内存泄漏和后端无意义调用。

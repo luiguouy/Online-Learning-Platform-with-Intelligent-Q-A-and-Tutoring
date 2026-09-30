@@ -84,6 +84,11 @@ public class QaSessionServiceImpl extends ServiceImpl<QaSessionMapper, QaSession
 
     @Override
     public QaSession getOwnedSession(Long sessionId, Long userId) {
+        return getOwnedSession(sessionId, userId, null);
+    }
+
+    @Override
+    public QaSession getOwnedSession(Long sessionId, Long userId, Long courseId) {
         if (sessionId == null) {
             throw new BusinessException("会话ID不能为空");
         }
@@ -91,8 +96,18 @@ public class QaSessionServiceImpl extends ServiceImpl<QaSessionMapper, QaSession
         if (session == null) {
             throw new BusinessException(404, "会话不存在");
         }
+        // 归属校验必须先于课程校验：否则越权者能用「400 不属于当前课程」与「404 不存在」
+        // 的差异探到他人会话的存在性与所属课程。
         if (!Objects.equals(session.getUserId(), userId)) {
             throw new BusinessException(403, "无权查看他人会话");
+        }
+        // 【#57 二】课程一致性校验：拦下「旧课程 sessionId + 新课程 courseId」的跳课混写。
+        // 走 400 而不是静默新建会话：静默自愈会把前端守卫缺失（#59）掩盖掉，
+        // 且学生看不出自己的提问落到了哪里；显式拒绝 + 可执行提示更安全。
+        if (courseId != null && !Objects.equals(session.getCourseId(), courseId)) {
+            log.warn("会话与当前课程不一致，已拒绝, sessionId={}, sessionCourseId={}, requestCourseId={}, userId={}",
+                    sessionId, session.getCourseId(), courseId, userId);
+            throw new BusinessException(400, "会话不属于当前课程，请刷新页面后重试");
         }
         return session;
     }
@@ -121,8 +136,10 @@ public class QaSessionServiceImpl extends ServiceImpl<QaSessionMapper, QaSession
     /**
      * 取当前登录用户 ID。
      *
-     * <p>Sa-Token 登录态存于 ThreadLocal，异步线程里取不到，
-     * 因此这里抛的是带指引的 401，而不是让人摸不着头脑的 NPE。</p>
+     * <p>
+     * Sa-Token 登录态存于 ThreadLocal，异步线程里取不到，
+     * 因此这里抛的是带指引的 401，而不是让人摸不着头脑的 NPE。
+     * </p>
      */
     private Long currentUserId() {
         if (!StpUtil.isLogin()) {
