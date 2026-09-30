@@ -287,7 +287,8 @@ public interface DocumentIngestionService {
 | 教师删别人课程的课件 | HTTP 403 |
 | 上传 `.exe` | HTTP 400 "仅支持 PDF / DOCX / MD / TXT 格式" |
 | 文件名含 `../../` | HTTP 400 "文件名非法"（已剥离路径，防目录穿越） |
-| 上传超过 50MB | HTTP 400 "文件超过 50MB 上限" |
+| 上传超过 **20MB**（业务上限，解析层 `rag.ingest.max-file-bytes`） | HTTP 200，课件落 `FAILED`，`errorMsg` = 「课件文件超过解析大小上限（20 MB），请拆分后重新上传…」 |
+| 上传超过 **50MB**（multipart 容器级粗保护，非业务口径） | HTTP 400 "文件超过 50MB 上限" |
 | 反馈 `status` 传 0 或 2 | HTTP 400 "反馈状态只能是 1（点赞）或 -1（点踩）" |
 | AI 回答里带 SQL / 磁盘路径的异常 | 只回 `系统繁忙，请稍后重试`，堆栈只进日志 |
 

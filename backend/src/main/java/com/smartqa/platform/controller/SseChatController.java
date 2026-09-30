@@ -11,7 +11,6 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.RejectedExecutionException;
 
@@ -47,31 +46,48 @@ public class SseChatController {
     private static final int ERROR_CODE_BUSY = 5003;
 
     /**
-     * 提问文本长度上限（字符数，按中文估算）。
+     * 提问文本长度上限（字符数）。
      *
-     * <p><b>这个值由 Tomcat 的请求行长度上限反推得到，不是随手写的。</b>
-     * 契约把 question 放在 GET query string，Tomcat 在
-     * {@code Http11InputBuffer.parseRequestLine} 处对「请求行 + 请求头」做长度校验，
-     * 超限的请求<b>根本进不到本方法</b>，容器直接返回 431/400，前端 EventSource
+     * <p><b>本值与 {@code application.yml} 的 {@code server.max-http-request-header-size}
+     * 是配套的，不能单独改。</b>契约把 question 放在 GET query string，Tomcat 在
+     * {@code Http11InputBuffer.fill()} 与 {@code parseHeaders()} 两处比较 {@code byteBuffer}
+     * 的位置与 {@code headerBufferSize}（请求行与请求头共用同一字节预算，故请求行也计入；
+     * {@code parseRequestLine} 自身不含该校验 —— 已反编译 tomcat-embed-core 10.1.31 核实），
+     * 超限抛 {@code IllegalArgumentException}（键 {@code iib.requestheadertoolarge.error}）：
+     * 请求<b>根本进不到本方法</b>，容器直接返回 HTTP 400，前端 EventSource
      * 只能看到一个没有任何信息的失败。</p>
      *
-     * <p>实测（二分逼近）本机 Tomcat 10.1 的请求行上限：
-     * 默认约 8056 字节；配置 {@code server.max-http-request-header-size: 64KB} 后约 16370 字节。
-     * 中文 URL 编码后约 9 字节/字，故 1600 字 ≈ 14400 字节 &lt; 16370，留约 2KB 余量。</p>
+     * <p>实测（原始 socket 二分 + 精确记账；Tomcat 10.1 / Spring Boot 3.3.5）：
+     * 该上限<b>恰好等于 {@code max-http-request-header-size} 的字节值（1:1）</b>，
+     * 计数口径为「请求行 + 所有请求头 + 各行 CRLF + 结束空行」之和——默认 8KB 时 8192 字节，
+     * 配 64KB 时 65536 字节；<b>超限返回 HTTP 400，不是 431</b>。
+     * 配 64KB 下本值 1600 字（中文 ≈14400 字节）仅占预算 22%，协议层余量充足。</p>
      *
-     * <p>⚠️ 本值与 {@code application.yml} 的 {@code max-http-request-header-size} 是配套的：
-     * 若去掉那项配置，上限会掉回 8056 字节，本值必须同步下调，否则超长提问仍会被协议层断连。</p>
+     * <p>⚠️ 真正的耦合点在<b>下限</b>：若删掉那项配置，上限掉回 8192 字节，
+     * 实测中文提问<b>超过 888 字</b>（8189 字节通过 / 889 字 8198 字节被拒）即被容器
+     * 以 HTTP 400 拒掉、进不到本方法，远低于本值 1600。
+     * 也就是说"超长提问走 event:error 友好返回"这条保障，依赖 64KB 那项配置成立。</p>
+     *
+     * <p><b>无需再做 UTF-8 字节级校验</b>（2026-09-30 实测定论，<b>勿按旧数据加回</b>）：
+     * 本闸的输入上界<b>只取决于字符数、与字符组成无关</b> —— 见下段，length() 不超过 1600 时
+     * UTF-8 字节恒 ≤ 4800，URL 编码后 ≤ 14400，占 65536 预算的 22%，离天花板尚远；
+     * 且超限返回 HTTP 400 而非 431。</p>
+     *
+     * <p>曾并存过一个 {@code MAX_QUESTION_UTF8_BYTES=5300} 字节闸，已按审查裁定整条移除。
+     * 移除的<b>真正理由</b>是它<b>不可达（死代码）</b>：{@code String.length()} 计的是
+     * UTF-16 码元，而每个 UTF-16 码元最多产出 3 个 UTF-8 字节（ASCII = 1；3 字节 CJK = 3；
+     * 4 字节 emoji 是代理对，4 字节 / 2 码元 = 2；穷举全部 1,114,112 个码位，
+     * (码元数, 字节数) 只有 (1,1)/(1,2)/(1,3)/(2,4) 四种，比值上限恰为 3）。
+     * 故 length() 不超过 1600 时，UTF-8 字节最多 3 x 1600 = 4800，恒小于 5300 ——
+     * 字节分支<b>永远不可能在字符分支为 false 时单独成立</b>，它对可观测行为零贡献，
+     * 任何测试都无法区分它在与不在。
+     * （附：审查意见里"1600 个 4 字节字符会先于字符闸触发"的算例不成立 ——
+     * 1600 个 emoji 的 length() 是 3200，拦下它的是本字符闸。此处以实测算术为准。）</p>
+     *
+     * <p>遗留（独立于本次移除，未擅自改，待裁定）：因 length() 计 UTF-16 码元，
+     * 用户视觉上的"1600 个 emoji"会被报"最多 1600 字"，这是既有的语义落差。</p>
      */
     private static final int MAX_QUESTION_LENGTH = 1600;
-
-    /**
-     * 【审查 L2】提问的 UTF-8 字节上限：URL 编码后每个 UTF-8 字节占 3 字节（%XX）。
-     * 9 字节/字的估算只对 3 字节字符（常规中文）成立；emoji / CJK 扩展 B 区是
-     * 4 字节字符（编码后 12 字节/字），1600 字 = 19200 字节 > 实测协议上限 16370，
-     * 仅按字符数拦会让这类请求在 Tomcat 协议层被无信息 431 掉，绕过友好提示。
-     * 5300 UTF-8 字节 ≈ 15900 编码字节 + 路径参数余量，常规 1600 字中文（4800 字节）不受影响。
-     */
-    private static final int MAX_QUESTION_UTF8_BYTES = 5300;
 
     private final SseStreamService sseStreamService;
     private final ObjectMapper objectMapper;
@@ -130,10 +146,8 @@ public class SseChatController {
         }
 
         // 【边界】超长提问：同样的理由走 SSE error 事件，给前端可读提示。
-        // 【审查 L2】字符数与 UTF-8 字节数双重校验：后者兜底 4 字节字符（emoji 等）
-        // 编码膨胀超出 Tomcat 请求行上限的情况，避免请求被协议层无信息 431 掉。
-        if (question.length() > MAX_QUESTION_LENGTH
-                || question.getBytes(StandardCharsets.UTF_8).length > MAX_QUESTION_UTF8_BYTES) {
+        // 只校验字符数（见 MAX_QUESTION_LENGTH Javadoc：字节级校验的立论已被实测推翻、已移除）。
+        if (question.length() > MAX_QUESTION_LENGTH) {
             log.warn("[SSE] 提问过长，userId={}, length={}", userId, question.length());
             sendErrorEvent(emitter, ERROR_CODE_PARAM,
                     "提问内容过长（最多 " + MAX_QUESTION_LENGTH + " 字），请精简后重试");

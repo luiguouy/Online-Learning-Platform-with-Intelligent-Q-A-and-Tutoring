@@ -1,6 +1,7 @@
 package com.smartqa.platform.service.rag;
 
 import com.smartqa.platform.config.RagConfigProperties;
+import dev.langchain4j.data.document.BlankDocumentException;
 import dev.langchain4j.data.document.Document;
 import dev.langchain4j.data.document.DocumentParser;
 import dev.langchain4j.data.document.DocumentSplitter;
@@ -101,6 +102,10 @@ public class DocumentIngestionService {
      * @param docId        课件记录 ID（写入 Metadata，级联删除依赖此键；由成员 B 的 course_document 主键提供）
      * @param uploadedBy   上传用户 ID（审计用途）
      * @return 实际入库的文本块数量
+     * @throws RuntimeException 解析失败或三层上限被触发时抛出，message 为<b>面向用户</b>的明确原因
+     *                          （由 Controller 捕获后写入 {@code course_document.error_msg}）。
+     *                          <b>注意</b>：内容为空/无文字层同样走抛异常（Issue #55），
+     *                          不再返回 0 —— 否则课件会以 CHUNKED + chunkCount=0 静默通过。
      */
     public int ingest(InputStream inputStream, String fileName, Long courseId, Long docId, Long uploadedBy) {
         log.info("[RAG-Ingest] 开始解析课件文件: {}, courseId={}, docId={}, uploadedBy={}",
@@ -111,8 +116,11 @@ public class DocumentIngestionService {
 
         String text = document.text();
         if (text == null || text.isBlank()) {
-            log.warn("[RAG-Ingest] 文件内容为空或无法提取文本，跳过入库: {}", fileName);
-            return 0;
+            // 正常来说解析器会先抛 BlankDocumentException（见 translateParseError 对应分支），
+            // 这里只是兜底。**解析路径上不能 return 0**：那会让课件以 CHUNKED + chunkCount=0
+            // 的形态静默通过，教师在课件管理页看到"已就绪"却检索不到任何内容（Issue #55）。
+            log.warn("[RAG-Ingest] 文件内容为空或无法提取文本: {}", fileName);
+            throw new RuntimeException(blankTextMessage(fileName));
         }
         log.info("[RAG-Ingest] Tika 解析完成，文本长度: {} 字符", text.length());
 
@@ -154,6 +162,10 @@ public class DocumentIngestionService {
     /**
      * 将 Tika 解析异常翻译为面向用户的明确错误信息。
      * langchain4j 会把底层异常包在 RuntimeException 里，因此需要沿 cause 链识别具体超限类型。
+     *
+     * <p>【Issue #55】这里必须把「格式支持、但内容里没有文字」与「文件损坏 / 内容无法识别」
+     * 分开报。上传白名单已限定 {@code pdf|docx|md|txt}，所以"格式不对"这条路径用户根本走不到；
+     * 早期把两类原因合并成一句「请检查文件格式」，会把扫描件用户引向反复换格式、无法自助排查。</p>
      */
     private RuntimeException translateParseError(Throwable cause, String fileName) {
         if (findInChain(cause, WriteLimitReachedException.class) != null) {
@@ -164,8 +176,30 @@ public class DocumentIngestionService {
             return new RuntimeException("课件文件超过解析大小上限（"
                     + (ragProps.getIngest().getMaxFileBytes() / 1024 / 1024) + " MB），请拆分后重新上传: " + fileName);
         }
+        // 【Issue #55】"无文本层"的精确判据：langchain4j 的 ApacheTikaDocumentParser 在
+        // 提取到空白文本时抛 BlankDocumentException（已实测复现：3 页空白 PDF 与纯空白 txt
+        // 都命中本分支，而格式其实完全合法）。
+        if (findInChain(cause, BlankDocumentException.class) != null) {
+            log.warn("[RAG-Ingest] 未提取到文本内容（可能是扫描件/纯图片，或文件已损坏）: {}", fileName);
+            return new RuntimeException(blankTextMessage(fileName));
+        }
         log.error("[RAG-Ingest] 文件解析失败: {}", fileName, cause);
-        return new RuntimeException("课件文件解析失败，请检查文件格式: " + fileName, cause);
+        // 走到这里既没超限、也不是"无文本"，剩下的常见原因是文件损坏 / 加密 / 内容无法识别。
+        // 措辞不再暗示"格式不对"（Issue #55）：格式在上传入口已校验过。
+        return new RuntimeException("课件文件解析失败：文件内容无法识别（可能已损坏或加密），"
+                + "请确认该文件能正常打开后重试: " + fileName, cause);
+    }
+
+    /**
+     * 「未提取到文本」的统一文案（Issue #55）：问题出在没有文字层，与文件格式无关。
+     *
+     * <p>⚠️ 实测发现 Tika 相当宽容：损坏的包格式文件（如内容乱码的 docx）往往**不抛异常、
+     * 只是提取到空文本**，同样落到本文案。所以措辞里带上"或文件已损坏"，避免把这类用户
+     * 引向"扫描件"这一条错误方向。</p>
+     */
+    private static String blankTextMessage(String fileName) {
+        return "未从课件中提取到文本内容（可能是扫描件/纯图片，或文件已损坏），"
+                + "请上传含文字层且能正常打开的文件后重试: " + fileName;
     }
 
     /** 沿异常 cause 链查找指定类型（含自引用环防护） */

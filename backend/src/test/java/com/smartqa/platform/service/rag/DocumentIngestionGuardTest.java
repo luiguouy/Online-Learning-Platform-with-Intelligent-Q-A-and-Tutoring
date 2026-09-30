@@ -10,9 +10,13 @@ import org.junit.jupiter.api.Test;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.Mockito.mock;
 
 /**
@@ -102,5 +106,61 @@ class DocumentIngestionGuardTest {
                 "应命中『解析超时』文案，实际：" + ex.getMessage());
         assertTrue(ex.getMessage().contains("1"),
                 "文案应回显超时秒数，实际：" + ex.getMessage());
+    }
+
+    // ── Issue #55：失败文案必须区分「无文本层」与「文件损坏/无法识别」 ────────────────
+    @Test
+    @DisplayName("#55 无文本层：文案应指向「上传含文字层的文件」，不得再提「检查文件格式」")
+    void blankDocumentMessageIsSpecific() {
+        DocumentIngestionService svc = newService(new RagConfigProperties());
+        // 提取到的文本为空白 —— 即扫描件 / 纯图片 PDF 的等价情形。
+        // langchain4j 的 ApacheTikaDocumentParser 会抛 BlankDocumentException（实测复现）。
+        InputStream blank = new ByteArrayInputStream("   \n\t  \n   ".getBytes(StandardCharsets.UTF_8));
+
+        RuntimeException ex = assertThrows(RuntimeException.class,
+                () -> svc.ingest(blank, "扫描件_空白3页.pdf", 1L, 101L, 1L));
+
+        assertTrue(ex.getMessage().contains("文本内容"),
+                "应命中『未提取到文本内容』文案，实际：" + ex.getMessage());
+        assertTrue(ex.getMessage().contains("文字层"),
+                "文案应给出可执行下一步（上传含文字层的文件），实际：" + ex.getMessage());
+        assertFalse(ex.getMessage().contains("格式"),
+                "Issue #55：不得再出现『格式』字样把用户引向换格式（格式本身没问题），实际：" + ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("#55 解析失败兜底文案：不得再把原因归到「格式」上（格式在上传入口已校验）")
+    void fallbackMessageDoesNotBlameFormat() {
+        DocumentIngestionService svc = newService(new RagConfigProperties());
+        // 提醒：Tika 相当宽容 —— 内容乱码的 .docx/.zip 实测**不抛异常、只是提取到空文本**，
+        // 会落到上面的"无文本"分支（已用 10 字节 ZIP 魔数垃圾验证过）。
+        // 兜底分支要的是"读取/解析过程本身抛错"，故下面给出候选输入，取真正命中兜底的那个。
+        List<InputStream> candidates = List.of(
+                // 候选 1：读取即失败（与具体格式无关，Tika 无法凭空产出文本）
+                new InputStream() {
+                    @Override
+                    public int read() throws IOException {
+                        throw new IOException("simulated read failure");
+                    }
+
+                    @Override
+                    public int read(byte[] b, int off, int len) throws IOException {
+                        throw new IOException("simulated read failure");
+                    }
+                },
+                // 候选 2：PDF 魔数 + 乱码正文（PDFBox 无法解析）
+                new ByteArrayInputStream("%PDF-1.4\n!!!! this is not a valid pdf body !!!!"
+                        .getBytes(StandardCharsets.UTF_8)));
+
+        for (InputStream candidate : candidates) {
+            RuntimeException ex = assertThrows(RuntimeException.class,
+                    () -> svc.ingest(candidate, "损坏的课件.pdf", 1L, 101L, 1L));
+            assertFalse(ex.getMessage().contains("请检查文件格式"),
+                    "Issue #55：兜底文案不得再引导用户去检查/更换格式，实际：" + ex.getMessage());
+            if (ex.getMessage().contains("无法识别")) {
+                return; // 确认命中兜底分支，且文案已改
+            }
+        }
+        fail("未能构造出命中兜底分支的输入 —— 说明兜底文案没有被任何用例覆盖");
     }
 }
