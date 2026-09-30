@@ -87,6 +87,16 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  *
  * <p>三条用例分别把修复的三段机制（写入后复核 / 删后复扫 / 常规清扫）钉住；任何一段被删掉，
  * 对应用例即失败（已用"临时移除修复代码"的方式验证过用例确实会红，而非恒绿）。</p>
+ *
+ * <p><b>⚠️ 证据落差（审查 P2-4，务必知悉）</b>：本类跑在 {@code application-test.yml} 的
+ * {@code rag.chroma.base-url: DISABLED} 下，即<b>进程内 {@code InMemoryEmbeddingStore}</b>
+ * （{@code CopyOnWriteArrayList}，{@code addAll}/{@code removeAll} 在同一把锁下串行，
+ * <b>读后写可见性天然成立</b>）。而三段式修复的整个正确性论证，都建立在"紧邻的
+ * {@code removeAll(filter)} 必然能看见刚 {@code addAll} 的切片"之上 ——
+ * <b>生产是 Chroma over HTTP，这个前提在 InMemory 下是被白送的</b>。
+ * 也就是说：<b>本类证明的是"修复逻辑在理想向量库语义下成立"，不等于"在真实 Chroma 下也成立"</b>
+ * （已核实 langchain4j 0.35.0 的 {@code ChromaEmbeddingStore} 确实实现了 {@code removeAll(Filter)}，
+ * 故生产不会静默失效，但该语义无自动化覆盖）。<b>真实 Chroma 下的验证由 Issue #58 的人工复测承担。</b></p>
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -248,6 +258,15 @@ class TeacherDocumentDeleteRaceTest {
         awaitIngestIdle();
 
         // 复现步骤 4：该 docId 不得残留任何切片
+        //
+        // ⚠️ 本用例"能钉住「写入后复核」"依赖一个非显然的前提（审查指出，务必保留说明）：
+        //    此处删除已在 addAll 之前完成了 ①②③，放行后切块线程写入向量；若人为删掉
+        //    「写入后复核」，它会直接调用 markChunked —— 而 markChunked 走 MyBatis-Plus
+        //    updateById，对已逻辑删除的行**影响 0 行且静默不抛异常**，因此**不会**掉进
+        //    catch 分支被那里顺手的清理兜住，向量才留下来、断言才红。
+        //    反过来说：**若日后把 markChunked 改成"更新不到行就抛异常"，异常会进 catch →
+        //    触发清理 → 本用例仍绿**，这条用例就静默失去钉住能力（且没人会知道）。
+        //    改 markChunked 语义时，必须回来复核本用例的变异测试是否依然成立。
         assertEquals(0, segmentsOf(docId),
                 "删除后向量库仍残留该 docId 的切片 —— 幽灵参考资料复现（学生仍能检索到已删课件）");
     }
@@ -296,7 +315,8 @@ class TeacherDocumentDeleteRaceTest {
         parseRelease.countDown(); // 本次不制造竞态：立刻放行
 
         long docId = upload("正常路径.md");
-        awaitIngestIdle();
+        // 本用例记录会保留，故直接用语义更强的"轮询业务终态"（审查 P2-3：不要依赖线程池空闲采样）
+        awaitParseSettled(docId);
 
         CourseDocument afterIngest = docService.getById(docId);
         assertNotNull(afterIngest, "正常路径下课件记录应保留");
@@ -355,19 +375,56 @@ class TeacherDocumentDeleteRaceTest {
     }
 
     /**
-     * 等待 ingestExecutor 空闲：ThreadPoolExecutor 的 activeCount 在该任务体（含 addAll
-     * 与写入后复核）返回之后才归零，因此这是一个确定性的"在途任务已结束"信号。
+     * 等待在途切块任务结束。
+     *
+     * <p><b>为什么不能称为"确定性的信号"</b>（审查 P2-3）：{@code ThreadPoolExecutor.addWorker}
+     * 会把首个任务作为 {@code firstTask} 直接交给新建的 Worker（<b>从不入队</b>），而
+     * {@code runWorker} 先 {@code w.unlock()} 再在新线程里 {@code w.lock()}，而
+     * {@code getActiveCount()} 统计的正是 {@code w.isLocked()}。因此在 {@code t.start()} 与
+     * 新线程真正拿到锁之间，{@code queue.isEmpty() && activeCount == 0} 会<b>瞬时同时成立</b>——
+     * 单次采样可能提前返回，让后续断言读到尚未推进的状态（用例 3 因此存在真实 flaky 路径，
+     * 目前被 {@code upload()} 里那次 MySQL 往返掩盖，CI 高负载下会暴露）。
+     * 故这里要求该条件<b>连续两次采样（间隔 50ms）都成立</b>才判定空闲。</p>
+     *
+     * <p>若调用方在等待时记录仍然存在（未删除），优先用语义更强的
+     * {@link #awaitParseSettled(long)}。</p>
      */
     private void awaitIngestIdle() throws InterruptedException {
         ThreadPoolExecutor pool = ingestExecutor.getThreadPoolExecutor();
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
+        int consecutiveIdle = 0;
         while (System.nanoTime() < deadline) {
             if (pool.getActiveCount() == 0 && pool.getQueue().isEmpty()) {
-                return;
+                if (++consecutiveIdle >= 2) {
+                    return;
+                }
+            } else {
+                consecutiveIdle = 0;
             }
             TimeUnit.MILLISECONDS.sleep(50);
         }
         fail("等待切块线程池空闲超时，在途任务未结束");
+    }
+
+    /**
+     * 轮询业务终态：等 {@code parse_status} 进入 {@code CHUNKED} / {@code FAILED}，或记录已消失。
+     *
+     * <p>比等线程池空闲语义更强、也更抗抖（直接盯业务结果而非线程状态）。
+     * 仅适用于"记录不会被删掉"的用例 —— 竞态用例里记录会被逻辑删除、状态永不推进，
+     * 那里只能用 {@link #awaitIngestIdle()}。超时即 {@code fail}，不会静默通过。</p>
+     */
+    private void awaitParseSettled(long docId) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
+        while (System.nanoTime() < deadline) {
+            CourseDocument doc = docService.getById(docId);
+            if (doc == null
+                    || CourseDocument.STATUS_CHUNKED.equals(doc.getParseStatus())
+                    || CourseDocument.STATUS_FAILED.equals(doc.getParseStatus())) {
+                return;
+            }
+            TimeUnit.MILLISECONDS.sleep(50);
+        }
+        fail("等待课件进入终态（CHUNKED/FAILED）超时, docId=" + docId);
     }
 
     private JsonNode bodyOf(MvcResult result) throws Exception {

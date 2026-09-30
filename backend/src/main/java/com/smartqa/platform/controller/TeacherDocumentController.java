@@ -155,6 +155,17 @@ public class TeacherDocumentController {
         return Result.success(docService.listByCourse(courseId));
     }
 
+    /**
+     * 删除课件（级联清理向量库，防止幽灵参考资料）。
+     *
+     * <p><b>⚠️ 本方法必须保持「无事务」</b>（本类与全局均未使用 {@code @Transactional}，
+     * <b>请勿给它加上</b>）：② 的逻辑删除依赖 {@code removeById} 立即 autocommit，
+     * 在途切块线程的「写入后复核」才能读到删除事实；③ 也正是借此顺序才闭合窗口。
+     * 若加上 {@code @Transactional}，② 在提交前对其它连接不可见，时序退化为
+     * {@code ① → ③ → (addAll) → 复核读到记录仍在 → 不清理 → (提交)}，
+     * 幽灵切片将<b>永久残留</b>；而且现有 3 条竞态用例仍会全绿（测试同样无事务），
+     * 照不出这个回归 —— 即"看起来更严谨"的重构会静默击穿 #58 修复。</p>
+     */
     @DeleteMapping("/{id}")
     @Operation(summary = "删除课件（级联清理向量库，防止幽灵参考资料）")
     public Result<Boolean> delete(@PathVariable("id") Long id) {
@@ -180,7 +191,15 @@ public class TeacherDocumentController {
         // 在途线程侧的兜底见 submitIngestion 的「写入后复核」。
         ingestionService.removeDocumentVectors(id);   // ①
         docService.removeById(id);                    // ② 逻辑删除
-        ingestionService.removeDocumentVectors(id);   // ③
+        // 【审查 P2-2】③ 失败不得让整个删除接口回 500：删除这一业务事实（②）已经成立，
+        // 回 500 会让教师误以为没删掉而重复上传，反而放大残留；且记录已逻辑删除，
+        // 重试只会拿到 404"课件不存在"，再没有任何接口能触发这次清理。
+        // 故降级为告警日志 + 仍返回业务成功；残留切片的人工/对账清理见 Issue #62。
+        try {
+            ingestionService.removeDocumentVectors(id);   // ③
+        } catch (Exception e) {
+            log.error("[#58] 删后复扫失败，可能存在残留切片需人工清理, docId={}", id, e);
+        }
 
         return Result.success(true);
     }
