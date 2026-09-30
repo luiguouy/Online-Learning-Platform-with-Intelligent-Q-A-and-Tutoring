@@ -216,7 +216,7 @@
               "mode": "formdata",
               "formdata": [
                 { "key": "courseId", "value": "1", "type": "text", "description": "课程 ID" },
-                { "key": "file", "type": "file", "src": [], "description": "PDF / DOCX / MD / TXT，≤50MB" }
+                { "key": "file", "type": "file", "src": [], "description": "PDF / DOCX / MD / TXT，≤20MB（业务口径；multipart 50MB 仅为容器级粗保护）" }
               ]
             },
             "url": {
@@ -224,7 +224,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "teacher", "docs", "upload"]
             },
-            "description": "上传课件并**异步**触发切块向量化。\n\n流程：落盘 → 落库 → 状态直接置 `PARSING` → 在 `sseExecutor` 线程池异步调 A 的 `ingest(...)` → 成功置 `CHUNKED` 并写 `chunkCount`，失败置 `FAILED` 并写 `errorMsg`。\n\n**返回 `data` 是课件 ID（Long），不是对象。** 前端拿到后立刻把列表项乐观插入并开始 3 秒轮询 `/list`。\n\n限制：仅 pdf/docx/md/txt；文件名含 `/` `\\` `..` 一律 400（路径穿越防护）；>50MB 返回 400「文件超过 50MB 上限」。"
+            "description": "上传课件并**异步**触发切块向量化。\n\n流程：落盘 → 落库 → 状态直接置 `PARSING` → 在 `sseExecutor` 线程池异步调 A 的 `ingest(...)` → 成功置 `CHUNKED` 并写 `chunkCount`，失败置 `FAILED` 并写 `errorMsg`。\n\n**返回 `data` 是课件 ID（Long），不是对象。** 前端拿到后立刻把列表项乐观插入并开始 3 秒轮询 `/list`。\n\n限制：仅 pdf/docx/md/txt；文件名含 `/` `\\` `..` 一律 400（路径穿越防护）；**业务上限 20MB**（解析层 `rag.ingest.max-file-bytes`，超出则课件落 `FAILED` 并在 `errorMsg` 说明——21~50MB 属于这一档）；**multipart 传输层 50MB 为容器级粗保护**，只有超过 50MB 才返回 400「文件超过 50MB 上限」。"
           },
           "response": [
             {
