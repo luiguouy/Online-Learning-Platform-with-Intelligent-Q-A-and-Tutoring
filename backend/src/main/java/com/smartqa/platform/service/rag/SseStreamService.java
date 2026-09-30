@@ -40,17 +40,19 @@ import java.util.stream.Collectors;
  * SSE 流式问答核心服务（A1.5）
  *
  * 流程：
- *   1. 懒创建 / 校验会话（成员 B 的 qa_session 持久化，非本人会话拒绝）
- *   2. 将用户问题向量化（本地 BGE-Small-ZH）
- *   3. 在 Chroma 中相似度检索 Top-K 课件片段，先下发 event: references 出处包
- *   4. 拼装 RAG 系统提示词，流式调用大模型，逐 Token 下发 event: message
- *   5. 流结束后落库 qa_record（成员 B 的 saveStreamingRecordAs），done 包回传 recordId
+ * 1. 懒创建 / 校验会话（成员 B 的 qa_session 持久化，非本人会话拒绝、跨课程会话拒绝 #57）
+ * 2. 将用户问题向量化（本地 BGE-Small-ZH）
+ * 3. 在 Chroma 中相似度检索 Top-K 课件片段，先下发 event: references 出处包
+ * 4. 拼装 RAG 系统提示词，流式调用大模型，逐 Token 下发 event: message
+ * 5. 流结束后落库 qa_record（成员 B 的 saveStreamingRecordAs），done 包回传 recordId
  *
  * 事件契约（DEV_SPECIFICATION.md 4.2 冻结，data 载荷一律为 JSON）：
- *   event: references → [{"docId":..,"fileName":..,"chunkIndex":..,"score":..,"snippet":..}]
- *   event: message   → {"delta": "..."}
- *   event: done      → {"recordId":..,"sessionId":..,"finishReason":"stop","totalTokens":..}
- *   event: error     → {"errorCode":..,"message":"..."}
+ * event: references →
+ * [{"docId":..,"fileName":..,"chunkIndex":..,"score":..,"snippet":..}]
+ * event: message → {"delta": "..."}
+ * event: done →
+ * {"recordId":..,"sessionId":..,"finishReason":"stop","totalTokens":..}
+ * event: error → {"errorCode":..,"message":"..."}
  *
  * 线程安全：@Async 运行在 sseExecutor，Sa-Token ThreadLocal 登录态不可用，
  * 故 userId 由 Controller 在请求线程捕获后显式传入（成员 B 指南 5.1 的约定）。
@@ -68,7 +70,24 @@ public class SseStreamService {
     /** 出处包 snippet 截断长度，防止单包过大 */
     private static final int SNIPPET_MAX_CHARS = 200;
 
-    /** RAG 系统提示词模板 */
+    /**
+     * RAG 系统提示词模板。
+     *
+     * <p>
+     * 【#57 三】第 2 条是契约硬性要求，此前实现缺失：
+     * {@code DEV_SPECIFICATION.md} §5.2 第 2 条要求「若参考资料中未提及相关信息，请明确回答
+     * “在当前课程课件中未找到该问题的明确说明”」，{@code MEMBER_A_DEV_GUIDE.md} §4.2 第 3 条
+     * 进一步要求该声明位于首句。旧提示词只写了「课件不足时可补充学科常识 + 标注
+     * 【课外补充说明】」，没有任何「须明确说明未找到」的约束，导致
+     * {@code C3-演示问题清单.md} Q5「防幻觉拒答」与 {@code COLLABORATION_WORKFLOW.md}
+     * R9 应对措施② 的输出是否符合契约无法保证。
+     * </p>
+     *
+     * <p>
+     * 注意：本串经 String.format 填充 context，修改时勿引入裸的百分号字符，
+     * 否则会抛 UnknownFormatConversionException。
+     * </p>
+     */
     private static final String RAG_SYSTEM_PROMPT = """
             你是一个专业的在线学习智能答疑助手。请根据以下课件内容回答学生的问题。
 
@@ -77,9 +96,10 @@ public class SseStreamService {
 
             【回答要求】
             1. 优先基于上述课件内容进行作答，保持准确性
-            2. 若课件内容不足以回答，可以补充学科常识，但必须显式标注【课外补充说明】
-            3. 回答简洁清晰，适合学生理解
-            4. 使用中文回答
+            2. 若上述课件内容中未提及该问题的相关信息，你必须首句明确回答：“在当前课程课件中未找到该问题的明确说明”
+            3. 若课件内容不足以完整回答，可以补充学科常识，但必须显式标注【课外补充说明】，不得与课件内容混淆
+            4. 回答简洁清晰，适合学生理解
+            5. 使用中文回答
             """;
 
     private final StreamingChatLanguageModel streamingChatModel;
@@ -91,12 +111,12 @@ public class SseStreamService {
     private final ObjectMapper objectMapper;
 
     public SseStreamService(StreamingChatLanguageModel streamingChatModel,
-                            EmbeddingModel embeddingModel,
-                            EmbeddingStore<TextSegment> embeddingStore,
-                            QaSessionService qaSessionService,
-                            QaRecordService qaRecordService,
-                            RagConfigProperties ragProps,
-                            ObjectMapper objectMapper) {
+            EmbeddingModel embeddingModel,
+            EmbeddingStore<TextSegment> embeddingStore,
+            QaSessionService qaSessionService,
+            QaRecordService qaRecordService,
+            RagConfigProperties ragProps,
+            ObjectMapper objectMapper) {
         this.streamingChatModel = streamingChatModel;
         this.embeddingModel = embeddingModel;
         this.embeddingStore = embeddingStore;
@@ -109,11 +129,11 @@ public class SseStreamService {
     /**
      * 执行 RAG 流式问答，将结果按 4.2 契约逐事件推送给 SseEmitter
      *
-     * @param emitter    SSE 输出通道（由 Controller 层创建并返回给前端）
-     * @param userId     提问学生 ID（请求线程捕获后传入，本方法运行在 sseExecutor 异步线程）
-     * @param courseId   课程 ID（用于检索过滤与会话绑定）
-     * @param question   用户问题
-     * @param sessionId  问答会话 ID；按契约传 0 或 null 时懒创建新会话
+     * @param emitter   SSE 输出通道（由 Controller 层创建并返回给前端）
+     * @param userId    提问学生 ID（请求线程捕获后传入，本方法运行在 sseExecutor 异步线程）
+     * @param courseId  课程 ID（用于检索过滤与会话绑定）
+     * @param question  用户问题
+     * @param sessionId 问答会话 ID；按契约传 0 或 null 时懒创建新会话
      */
     @Async("sseExecutor")
     public void streamChat(SseEmitter emitter, Long userId, Long courseId, String question, Long sessionId) {
@@ -126,7 +146,8 @@ public class SseStreamService {
                 actualSessionId = qaSessionService.createSessionLazyForUser(userId, courseId, question);
                 log.info("[SSE] 懒创建会话 sessionId={}, courseId={}", actualSessionId, courseId);
             } else {
-                QaSession owned = qaSessionService.getOwnedSession(sessionId, userId);
+                // 【#57 二】传入 courseId 做课程一致性校验：拦下前端切课后仍带旧 sessionId 的跳课混写
+                QaSession owned = qaSessionService.getOwnedSession(sessionId, userId, courseId);
                 actualSessionId = owned.getId();
                 log.info("[SSE] 复用会话 sessionId={}, courseId={}", actualSessionId, courseId);
             }
@@ -163,7 +184,12 @@ public class SseStreamService {
                     .collect(Collectors.joining("\n\n---\n\n"));
 
             if (context.isBlank()) {
-                context = "（未检索到相关课件内容，请基于学科常识作答并标注【课外补充说明】）";
+                // 【#57 三】空检索分支同样受契约约束：旧文案直接引导模型「基于学科常识作答」，
+                // 缺「首句明确说明未找到」；而这正是演示 Q5 防幻觉拒答最依赖的分支
+                // （相似度阈值 0.70 未命中时走这里，与「命中但片段不足」是两件事）。
+                context = """
+                        （本次检索未命中任何课件片段。你必须首句明确回答“在当前课程课件中未找到该问题的明确说明”，\
+                        随后可基于学科常识作答，但必须显式标注【课外补充说明】，不得与课件内容混淆）""";
                 log.warn("[SSE] 检索结果为空，sessionId={}, courseId={}", actualSessionId, courseId);
             } else {
                 log.info("[SSE] 检索到 {} 个相关片段，sessionId={}", references.size(), actualSessionId);
@@ -203,7 +229,8 @@ public class SseStreamService {
 
                     TokenUsage usage = response.tokenUsage();
                     int totalTokens = (usage != null && usage.totalTokenCount() != null)
-                            ? usage.totalTokenCount() : 0;
+                            ? usage.totalTokenCount()
+                            : 0;
                     Map<String, Object> donePayload = Map.of(
                             "recordId", recordId,
                             "sessionId", actualSessionId,
