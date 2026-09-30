@@ -52,7 +52,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  * 覆盖场景（DoD 第 2 层「3 个边界」+ 契约核对）：
  *   1. 首问懒建会话：references 首包 + {"delta"} 帧 + done 含 recordId，qa_record 真落库、出处快照正确
  *   2. 超长提问（> 1600 字业务上限）：event:error {errorCode:4000} 友好拦截，不落库、不断连
- *      （B3.1 修复点：此前会走到协议层被 Tomcat 431 断连，前端看不到任何原因）
+ *      （B3.1 修复点：此前在真实协议栈下会被容器以 HTTP 400 断连，前端看不到任何原因）
  *   3. 边界值提问（恰好 1600 字）：放行出流，锁定「上限含端点」语义
  *   4. 续问复用会话：不再新建 qa_session
  *   5. 越权访问他人会话（seed session 1 属 student01）：error {"errorCode":403}，不落库
@@ -182,10 +182,10 @@ class SseWiringIntegrationTest {
     @DisplayName("边界1：超长提问（1800 字 > 1600 上限）被业务上限拦截为 error 4000，不落库")
     void oversizedQuestion() throws Exception {
         // MAX_QUESTION_LENGTH = 1600（见 SseChatController）；1800 字超出业务上限。
-        // 【审查 H1】长度刻意落在「业务上限外、协议上限内」（1800 字 URL 编码后 ≈16200 字节
-        // < 实测协议上限 16370）——真实 HTTP 客户端发的这条请求也能进到业务拦截拿到 4000；
-        // 超出协议上限的区间（真实请求会被 Tomcat 无信息 431 掉）由 SseProtocolBoundaryTest
-        // 走真实协议栈单独锁定——本类的 MockMvc 把参数直塞 parameterMap，不经请求行解析，覆盖不到那一层。
+        // 【审查 H1】长度刻意落在「业务上限外、协议上限内」（1800 字 URL 编码后 ≈16200 字节，
+        // 远小于实测协议上限 65536 字节 = 配置值 64KB）——真实 HTTP 客户端发的这条请求
+        // 也能进到业务拦截拿到 4000；协议层天花板由 SseProtocolBoundaryTest 走真实协议栈单独锁定，
+        // 本类的 MockMvc 把参数直塞 parameterMap，不经请求行解析，覆盖不到那一层。
         String question = "虚拟内存".repeat(450); // 4 字 × 450 = 1800 字 > 1600
         String body = stream(question, 0L);
 
@@ -204,7 +204,8 @@ class SseWiringIntegrationTest {
     @Test
     @DisplayName("边界1b：提问恰好等于上限（1600 字）应放行出流（边界含端点）")
     void questionAtUpperBound() throws Exception {
-        // 1600 字 × 约 9 字节/字（中文 URL 编码）≈ 14400 字节 < 协议上限 16370 字节，
+        // 1600 字 × 约 9 字节/字（中文 URL 编码）≈ 14400 字节，仅占实测协议上限
+        // 65536 字节（= max-http-request-header-size 64KB，1:1）的 22%，
         // 因此能进到 Controller 并通过业务校验。此用例锁定「上限含端点」的语义，
         // 防止日后有人把校验写成 >= 而静默收紧契约。
         String question = "虚".repeat(1600);

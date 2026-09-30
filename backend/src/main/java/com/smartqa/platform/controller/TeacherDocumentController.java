@@ -167,8 +167,21 @@ public class TeacherDocumentController {
 
         // 关键：MySQL 记录删掉后必须同步删除向量库中该 docId 的全部切块，
         // 否则课件没了但学生提问仍能检索到它的片段（幽灵参考资料）。
-        ingestionService.removeDocumentVectors(id);
-        docService.removeById(id);
+        //
+        // 【Issue #58 竞态】删除允许发生在"解析中"，而在途切块线程是**切完全部片段后
+        // 一次性** embeddingStore.addAll(...)。若本方法的清向量动作先于那次 addAll，
+        // 就成了"先清了个空、随后被写回"的幽灵切片。三步顺序不可调换：
+        //   ① 前置清扫 —— 向量库异常时在"尚未改变任何业务状态"前失败，用户可原样重试；
+        //   ② 逻辑删除记录（is_deleted=1）—— 这是给在途切块线程的「作废」信号，
+        //      必须早于 ③：否则在途线程的"写入后复核"读不到删除事实（TOCTOU，仅靠
+        //      "写入前检查记录是否存在"无法覆盖）；
+        //   ③ 删后复扫 —— 关闭 ①→② 之间落入的 addAll（在途线程恰好在那一段完成写入时，
+        //      ① 清到的是空集合），使本接口自身闭环，不单独依赖异步侧的复核。
+        // 在途线程侧的兜底见 submitIngestion 的「写入后复核」。
+        ingestionService.removeDocumentVectors(id);   // ①
+        docService.removeById(id);                    // ② 逻辑删除
+        ingestionService.removeDocumentVectors(id);   // ③
+
         return Result.success(true);
     }
 
@@ -209,10 +222,30 @@ public class TeacherDocumentController {
             CompletableFuture.runAsync(() -> {
                 try (InputStream in = new FileInputStream(filePath)) {
                     int chunks = ingestionService.ingest(in, fileName, courseId, docId, uploadedBy);
+
+                    // 【Issue #58】写入后复核（整条链路对并发删除的最后兜底）。
+                    // delete() 允许在解析中删除课件；若本任务的 addAll 恰好落在它 ①→③
+                    // 两次清扫之间，向量就会以"幽灵切片"留在库中。addAll 之后再查一次记录
+                    // 是否还在：记录已被逻辑删除（getById 返回 null，逻辑删除对它可见）
+                    // 说明这次的切块结果已被作废 → 立即回收刚写入的向量，且不回写状态。
+                    // ⚠️ 必须是"写后查"：写成"查后再写"只能缩小窗口，消除不了 TOCTOU。
+                    if (docService.getById(docId) == null) {
+                        ingestionService.removeDocumentVectors(docId);
+                        log.warn("[#58] 课件在解析期间被删除，已回收刚写入的向量切片, docId={}, chunks={}",
+                                docId, chunks);
+                        return;
+                    }
                     docService.markChunked(docId, chunks);
                 } catch (Exception e) {
                     log.error("课件切块向量化失败, docId={}, fileName={}", docId, fileName, e);
-                    docService.markFailed(docId, e.getMessage());
+                    if (docService.getById(docId) == null) {
+                        // 课件已被删除：既不回写 FAILED（updateById 本就会影响 0 行、徒留误报日志），
+                        // 也顺手清掉可能已部分写入的切片，避免留下幽灵参考资料。
+                        ingestionService.removeDocumentVectors(docId);
+                        log.warn("[#58] 课件在解析期间被删除，跳过失败状态回写并清理残留切片, docId={}", docId);
+                    } else {
+                        docService.markFailed(docId, e.getMessage());
+                    }
                 }
             }, asyncExecutor);
         } catch (RejectedExecutionException e) {

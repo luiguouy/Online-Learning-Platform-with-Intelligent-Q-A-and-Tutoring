@@ -112,8 +112,10 @@
     <!-- 输入区：C2.1 接入 SSE 打字机流式 -->
     <footer class="chat-footer">
       <!--
-        上限 1600 字（响应成员B在 PR #41 的提示）：提问是走 querystring 的 GET，
-        约 1810 字会触发协议层 HTTP 431，请求进不到 Controller，
+        上限 1600 字（响应成员B在 PR #41 的提示）：提问走 querystring 的 GET，
+        后端容器对「请求行 + 所有请求头」有长度上限（当前 max-http-request-header-size=64KB，
+        实测 65536 字节、1:1 等于配置值，超限返回 HTTP 400）；若该配置缺失会掉回 8KB，
+        此时中文提问超过 888 字就被容器直接拒掉、进不到 Controller，
         EventSource 拿不到任何可读原因（前端只看到一个无信息的失败）。
         在输入端先挡住，并用字数计数器把限制暴露给用户，而不是静默截断。
       -->

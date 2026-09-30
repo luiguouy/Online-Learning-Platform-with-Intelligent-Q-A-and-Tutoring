@@ -47,29 +47,41 @@ public class SseChatController {
     private static final int ERROR_CODE_BUSY = 5003;
 
     /**
-     * 提问文本长度上限（字符数，按中文估算）。
+     * 提问文本长度上限（字符数）。
      *
-     * <p><b>这个值由 Tomcat 的请求行长度上限反推得到，不是随手写的。</b>
-     * 契约把 question 放在 GET query string，Tomcat 在
-     * {@code Http11InputBuffer.parseRequestLine} 处对「请求行 + 请求头」做长度校验，
-     * 超限的请求<b>根本进不到本方法</b>，容器直接返回 431/400，前端 EventSource
+     * <p><b>本值与 {@code application.yml} 的 {@code server.max-http-request-header-size}
+     * 是配套的，不能单独改。</b>契约把 question 放在 GET query string，Tomcat 在
+     * {@code Http11InputBuffer.parseRequestLine} 处对「请求行 + 所有请求头」做长度校验，
+     * 超限的请求<b>根本进不到本方法</b>，容器直接返回 HTTP 400，前端 EventSource
      * 只能看到一个没有任何信息的失败。</p>
      *
-     * <p>实测（二分逼近）本机 Tomcat 10.1 的请求行上限：
-     * 默认约 8056 字节；配置 {@code server.max-http-request-header-size: 64KB} 后约 16370 字节。
-     * 中文 URL 编码后约 9 字节/字，故 1600 字 ≈ 14400 字节 &lt; 16370，留约 2KB 余量。</p>
+     * <p>实测（原始 socket 二分 + 精确记账；Tomcat 10.1 / Spring Boot 3.3.5）：
+     * 该上限<b>恰好等于 {@code max-http-request-header-size} 的字节值（1:1）</b>，
+     * 计数口径为「请求行 + 所有请求头 + CRLF」之和——默认 8KB 时 8192 字节，
+     * 配 64KB 时 65536 字节；<b>超限返回 HTTP 400，不是 431</b>。
+     * 配 64KB 下本值 1600 字（中文 ≈14400 字节）仅占预算 22%，协议层余量充足。</p>
      *
-     * <p>⚠️ 本值与 {@code application.yml} 的 {@code max-http-request-header-size} 是配套的：
-     * 若去掉那项配置，上限会掉回 8056 字节，本值必须同步下调，否则超长提问仍会被协议层断连。</p>
+     * <p>⚠️ 真正的耦合点在<b>下限</b>：若删掉那项配置，上限掉回 8192 字节，
+     * 实测中文提问<b>超过 888 字</b>（8189 字节通过 / 889 字 8198 字节被拒）即被容器
+     * 以 HTTP 400 拒掉、进不到本方法，远低于本值 1600。
+     * 也就是说"超长提问走 event:error 友好返回"这条保障，依赖 64KB 那项配置成立。</p>
      */
     private static final int MAX_QUESTION_LENGTH = 1600;
 
     /**
-     * 【审查 L2】提问的 UTF-8 字节上限：URL 编码后每个 UTF-8 字节占 3 字节（%XX）。
-     * 9 字节/字的估算只对 3 字节字符（常规中文）成立；emoji / CJK 扩展 B 区是
-     * 4 字节字符（编码后 12 字节/字），1600 字 = 19200 字节 > 实测协议上限 16370，
-     * 仅按字符数拦会让这类请求在 Tomcat 协议层被无信息 431 掉，绕过友好提示。
-     * 5300 UTF-8 字节 ≈ 15900 编码字节 + 路径参数余量，常规 1600 字中文（4800 字节）不受影响。
+     * 【审查 L2】提问的 UTF-8 字节上限：URL 编码后每个 UTF-8 字节占 3 字符（%XX），
+     * 故这是与「字符组成无关」的那一层输入预算。
+     *
+     * <p>9 字节/字的估算只对 3 字节字符（常规中文）成立；emoji / CJK 扩展 B 区是 4 字节字符
+     * （编码后 12 字节/字），同样 1600 个字符占用的请求行是常规中文的 1.33 倍。</p>
+     *
+     * <p>⚠️ <b>实测澄清（2026-09-30）</b>：本值最初的理由是"防止 4 字节字符编码膨胀后撞上
+     * 协议上限被无信息 431 掉"，该前提已被推翻——协议上限<b>等于配置值 64KB = 65536 字节</b>
+     * （1:1，见 {@link #MAX_QUESTION_LENGTH}），1600 个 4 字节字符也只 ≈19200 编码字节，
+     * 离天花板尚远，且超限返回 400 不是 431。
+     * 因此本值<b>不是协议安全所必需</b>，保留它是作为与字符上限并行的<b>输入预算</b>：
+     * 把"提问占用的请求行字节"钉在 ≈15.9KB 以内，与字符组成无关。
+     * 若后续认为无需这一层预算，可整条删除（删除不影响协议安全）。</p>
      */
     private static final int MAX_QUESTION_UTF8_BYTES = 5300;
 
@@ -130,8 +142,8 @@ public class SseChatController {
         }
 
         // 【边界】超长提问：同样的理由走 SSE error 事件，给前端可读提示。
-        // 【审查 L2】字符数与 UTF-8 字节数双重校验：后者兜底 4 字节字符（emoji 等）
-        // 编码膨胀超出 Tomcat 请求行上限的情况，避免请求被协议层无信息 431 掉。
+        // 【审查 L2】字符数与 UTF-8 字节数双重校验：后者是与字符组成无关的输入预算，
+        // 避免 4 字节字符（emoji 等）在 URL 编码下把请求行撑得比常规中文大 1.33 倍。
         if (question.length() > MAX_QUESTION_LENGTH
                 || question.getBytes(StandardCharsets.UTF_8).length > MAX_QUESTION_UTF8_BYTES) {
             log.warn("[SSE] 提问过长，userId={}, length={}", userId, question.length());
