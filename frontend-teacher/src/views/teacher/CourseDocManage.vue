@@ -26,16 +26,22 @@
       description="课件仍在后台切块中，请点「刷新」查看最新状态。"
     />
 
+    <!--
+      列宽预算（Issue #48）：容器的可用宽度 = 视口 − 220（侧栏）− 40（main padding）− 40（.doc-manage padding）
+      = 视口 − 300。各列最小宽度之和必须小于该值，否则 el-table 出现横向滚动，
+      fixed="right" 的操作列会浮在上层遮住「上传时间」尾部（尤其 1330px 及以下视口）。
+      下列宽度经 1280 / 1366 / 1440 三档视口实测，均不重叠且文本完整。
+    -->
     <el-table v-loading="loading" :data="docList" stripe border class="doc-table">
-      <el-table-column prop="id" label="ID" width="80" />
-      <el-table-column prop="fileName" label="课件文件名" min-width="220" show-overflow-tooltip />
-      <el-table-column prop="fileType" label="类型" width="90">
+      <el-table-column prop="id" label="ID" width="60" />
+      <el-table-column prop="fileName" label="课件文件名" min-width="180" show-overflow-tooltip />
+      <el-table-column prop="fileType" label="类型" width="76">
         <template #default="{ row }">
           <el-tag size="small">{{ String(row.fileType).toUpperCase() }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="chunkCount" label="切块片段数" width="120" />
-      <el-table-column prop="parseStatus" label="知识库状态" width="180">
+      <el-table-column prop="chunkCount" label="切块片段数" width="100" />
+      <el-table-column prop="parseStatus" label="知识库状态" width="165">
         <template #default="{ row }">
           <el-tag v-if="row.parseStatus === 'CHUNKED'" type="success">已就绪 (RAG可用)</el-tag>
           <el-tag v-else-if="row.parseStatus === 'PARSING'" type="warning">切块向量化中...</el-tag>
@@ -48,7 +54,7 @@
       <el-table-column label="上传时间" width="180">
         <template #default="{ row }">{{ formatDateTime(row.createdAt) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="170" fixed="right">
+      <el-table-column label="操作" width="155" fixed="right">
         <template #default="{ row }">
           <!-- 后端 reindex 无状态机守卫，对 PARSING/PENDING 中的课件再点会并发两次切块产生重复切片，故禁用 -->
           <el-button
