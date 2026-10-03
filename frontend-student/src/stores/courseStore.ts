@@ -1,5 +1,7 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
+
+import { useChatStore } from '@/stores/chatStore';
 import type { Course } from '@/types';
 
 /**
@@ -40,8 +42,19 @@ export const useCourseStore = defineStore('course', () => {
   }
 
   function selectCourse(courseId: number): void {
+    // #59 根因修复：切课瞬间 currentCourseId 已经是新课，而 currentSessionId 仍指向上
+    // 一门课的会话 —— 这个不一致窗口内的提问会带着「旧 sessionId + 新 courseId」发出，
+    // 服务端按 Issue #57 §二 的一致性校验直接回 400「会话不属于当前课程」。
+    // 所以切课时必须同步作废会话上下文（sessionId 归 0），让窗口内即便有请求漏出去，
+    // 也是走契约 4.2 的懒创建落到新课程下，而不是拿旧会话 id 撞一致性校验。
+    // 注：ChatWorkspace 的 canSubmit 守卫是体验层兜底（让用户按不下去），这里才是成因。
+    const changed = courseId !== currentCourseId.value;
     currentCourseId.value = courseId;
     localStorage.setItem(COURSE_ID_KEY, String(courseId));
+    if (changed) {
+      // 惰性调用：动作执行时 Pinia 必然已安装；放在模块顶层会拿到未初始化的 store
+      useChatStore().startNewSession();
+    }
   }
 
   return { courses, currentCourseId, currentCourse, coursesError, setCourses, setCoursesError, selectCourse };

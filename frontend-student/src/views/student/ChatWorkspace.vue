@@ -130,15 +130,11 @@
       />
       <div class="footer-actions">
         <span class="footer-tip">
-          {{
-            chatStore.streaming
-              ? '正在生成，可点「停止生成」中断'
-              : '回答仅基于本课程课件检索，可核对参考资料出处'
-          }}
+          {{ footerTip }}
         </span>
         <div class="footer-buttons">
           <el-button v-if="chatStore.streaming" @click="handleStop">停止生成</el-button>
-          <el-button type="primary" :disabled="!canSend" @click="handleSend">发送</el-button>
+          <el-button type="primary" :disabled="!canSubmit" @click="handleSend">发送</el-button>
         </div>
       </div>
     </footer>
@@ -160,6 +156,8 @@
  *             一键触发 KnowledgePanel 看知识点精解（只读）；
  *             每条回答可点赞 / 点踩，选中态随历史会话一起恢复。
  * C3.1：消息区三态 —— 骨架屏（加载）/ 友好错误 + 重试（失败，含课程列表失败）/ 空态。
+ * #59 ：发送闸门收敛为单一 canSubmit —— 按钮 :disabled / Enter 处理 / handleSend 三处共用，
+ *       切课与明细加载期间发不出去（Enter 直接调 handleSend，绕过按钮，故必须共用同一判定）。
  *
  * 节流说明：打字机的「合并一帧内的多个 delta」在 utils/typewriter.ts 里做，
  * 本组件只负责「每帧一次滚动」——滚动跟着落地节奏走，不会比文本更新更频繁。
@@ -221,7 +219,34 @@ const knowledgeRef = ref<InstanceType<typeof KnowledgePanel>>();
  */
 const stickToBottom = ref(true);
 
-const canSend = computed(() => draft.value.trim().length > 0 && !chatStore.streaming);
+/**
+ * 唯一「可发送」判定（#59）：按钮 :disabled / Enter 处理 / handleSend 内部**三处共用**。
+ *
+ * 为什么必须共用一份：`handleKeydown` 的 Enter **直接调用 handleSend()，绕过按钮的
+ * `:disabled`** —— 只收紧按钮，Enter 照发不误（这正是 #59 验收里特意要求
+ * 「Enter 不发送须单独验，不能只验按钮」的原因）。
+ *
+ * 三个条件各自对应一种「此刻发出去一定是错的」：
+ *  - streaming       ：正在生成，再发会把两条流写进同一个气泡
+ *  - loadingSessions ：切课后会话列表尚未返回，此刻 currentSessionId 仍是上一门课的 id
+ *  - loadingRecords  ：会话明细还在加载，消息区尚无内容可对话
+ */
+const canSubmit = computed(
+  () =>
+    draft.value.trim().length > 0 &&
+    !chatStore.streaming &&
+    !chatStore.loadingSessions &&
+    !chatStore.loadingRecords,
+);
+
+/** 底部提示（#59）：把「为什么现在发不出去」讲清楚，避免按钮变灰却无解释 */
+const footerTip = computed(() => {
+  if (chatStore.streaming) return '正在生成，可点「停止生成」中断';
+  if (chatStore.loadingSessions || chatStore.loadingRecords) {
+    return '正在加载课程数据，加载完成后即可提问';
+  }
+  return '回答仅基于本课程课件检索，可核对参考资料出处';
+});
 
 /** 最后一条消息：流式进行中它就是正在吐字的那条回答 */
 const lastMessage = computed(() => chatStore.messages[chatStore.messages.length - 1]);
@@ -268,8 +293,9 @@ watch(
 );
 
 function handleSend(): void {
+  // 唯一闸门（#59）：Enter 也走这里，与按钮 :disabled 同源，不存在「按钮灰了还能回车发出去」
+  if (!canSubmit.value) return;
   const text = draft.value.trim();
-  if (!text || chatStore.streaming) return;
   if (!courseStore.currentCourseId) {
     ElMessage.warning('请先在左侧选择课程');
     return;
@@ -284,6 +310,9 @@ function handleKeydown(event: KeyboardEvent): void {
   // 只认不带 Shift 的 Enter；isComposing 让中文输入法的选词回车不算发送
   if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
   event.preventDefault();
+  // #59：与按钮共用同一判定。Enter 绕过按钮 :disabled，所以这里必须再挡一次加载期发送。
+  // 保持「Enter 从不换行」的既有语义（换行用 Shift + Enter），被挡住时即为无操作。
+  if (!canSubmit.value) return;
   handleSend();
 }
 
