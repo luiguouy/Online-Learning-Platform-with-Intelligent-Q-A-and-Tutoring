@@ -24,6 +24,21 @@ mvn -B compile
 - [ ] 未改动接口字段 / 表结构 / 依赖
 - [ ] 改动了（请说明改动点，并 @ 受影响的成员）
 
+<!--
+改到 Service / Mapper / store / 公共组件时，把 graft blast 的输出贴在下面折叠块里——
+它是基于 git diff 的传递影响面，比「我认为没影响」可信。命令见 dev-docs/GRAFT_USAGE.md 第 2 节。
+graft/ 是本地产物不入库，所以每人自己 build：pwsh -File scripts/graft-build.ps1
+只改文档 / 注释 / 测试文案时可跳过。
+-->
+<details>
+<summary>graft blast 传递影响面（改到 Service/Mapper/store/公共组件时必填）</summary>
+
+```text
+（粘贴 graft blast <repo> --format markdown 的输出）
+```
+
+</details>
+
 ---
 
 ### 提交者自查（Definition of Done）
@@ -39,7 +54,7 @@ mvn -B compile
 ### Reviewer 检查（逐条过，不要只点 Approve）
 
 - [ ] CI 全绿
-- [ ] 改动范围与描述一致，无夹带无关修改
+- [ ] 改动范围与描述一致，无夹带无关修改（**含 IDE 自动格式化产生的空白/换行重排**；改到 Service/Mapper/store 时对照 §4 的 graft blast 输出核实）
 - [ ] 后端：Controller 无业务逻辑，接口统一 `Result<T>` 包装
 - [ ] 前端：无未处理 Promise，Token 统一用 `satoken` 键
 - [ ] SSE 相关：4 事件 JSON 载荷未被破坏，`done` 仍含 `recordId`

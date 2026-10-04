@@ -16,6 +16,16 @@ gh auth status
 - 未登录 → **停下来**，让组员自己在终端跑 `gh auth login`（选 GitHub.com → HTTPS → Login with a web browser），Agent 不要代填任何凭据。
 - 登录身份必须与自己的 Issue assignee 一致（A=luiguouy，B=Cheng-king666，C=vitamin32，D=susir1）。
 
+再确认**代码图谱**可用（Windows 侧经 WSL 转发，详见 `GRAFT_USAGE.md`）：
+
+```powershell
+pwsh -File scripts/graft-build.ps1 -Check   # exit 1 = 图谱已过时，去掉 -Check 重跑一次即可
+```
+
+- graft 缺失 → 让组员自己在 WSL 内跑 `npm i -g @nanonets/graft`，Agent 不要代装。
+- 图谱是**本地产物**（`graft/` 已 gitignore）：每人各自 build，**不提交、不进仓库**。
+- 纯静态解析，**零 API Key、零费用**；不要跑 `graft build --deep`（那才需要 LLM Key，本项目已裁决不用，见 `GRAFT_USAGE.md`「团队约定与注意事项」）。
+
 ---
 
 ## 1. 任务唯一真源：GitHub Issue（不是聊天，不是文档表格）
@@ -49,7 +59,19 @@ gh issue list --repo luiguouy/Online-Learning-Platform-with-Intelligent-Q-A-and-
 # 2.2 从 dev 拉工作分支（命名规范见 COLLABORATION_WORKFLOW.md 2.1）
 git checkout dev && git pull origin dev
 git checkout -b feature/<我的字母>-<任务短名>
+
+# 2.3 写第一行代码之前：查清要改的符号被谁调用（爆炸半径）
+#     只改文档 / 注释 / 测试文案时可跳过。
+#     <repo> = /mnt/d/AI_Workspace/Online Learning Platform with Intelligent Q&A and Tutoring
+graft callers <方法名> '<repo>'                   # 反向：谁调用了它，精确到 文件:行号
+graft callers <方法名> '<repo>' --direction out   # 正向：它调用了谁
 ```
+
+> **为什么 2.3 不能省**：本项目多次返工都源于「改了一处、没发现别处依赖它」。两个真实例子：
+> `removeDocumentVectors` 实际有 **6 个调用方**（动它之前得先知道这六个分别在哪里）；
+> `getOwnedSession` 有两个重载，而其中一个调用方（`QaRecordServiceImpl.listBySession`）**手里根本没有 courseId**，
+> 直接改签名就会连带改接口契约——这类事实靠翻文件很容易漏，`graft callers` 秒级给结果。
+> 查完把关键调用方列表贴进任务 Issue 的评论区，组长与复测人能直接看到影响面。
 
 ## 3. 每日站会：发在该任务的 Issue 评论区
 
@@ -76,6 +98,7 @@ gh issue edit <编号> --repo <同仓库> --add-label blocked
 任务完成后：
 
 1. 对照 Issue 正文的验收标准**逐条自测**，把真实命令输出（`BUILD SUCCESS` / 接口返回 / 测试结果）整理进 PR 描述——遵循 `.github/PULL_REQUEST_TEMPLATE.md` 四段式。
+   - **§4「影响面」要贴证据，不是只勾框**：改到 Service / Mapper / store / 公共组件时，把 `graft blast '<repo>' --format markdown` 的输出贴进模板的折叠块（它基于 git diff 算传递影响、含 Mermaid 图）。这一步还能顺手抓出 **IDE 自动格式化夹带的无关改动**——本项目已多次出现「只编辑了一个 `.java` 文件，格式化器却把别处几个 Javadoc 块重排了」的情况，肉眼读 diff 很容易放过。
 2. 创建 PR 指向 `dev`，描述首行写 `Closes #<编号>`（合并时自动关 Issue）。**例外**：修复 `bug.yml` 缺陷 Issue 的 PR **不要写 `Closes #`**——缺陷要由发现者验证后手动关单（`COLLABORATION_WORKFLOW.md` 9.2）。
 
 ```bash
