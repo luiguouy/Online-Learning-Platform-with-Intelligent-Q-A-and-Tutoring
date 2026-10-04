@@ -329,8 +329,8 @@ public class TeacherDocumentController {
     private final CourseDocumentService docService;
     private final DocumentIngestionService ingestionService; // 成员 A 提供的 RAG 切块服务
     private final QaRecordService qaRecordService;
-    @Resource(name = "sseExecutor")
-    private Executor asyncExecutor; // AsyncThreadPoolConfig 中定义的专用线程池（见 AGENT_INSTRUCTIONS 1.3），禁止用默认公共池
+    @Resource(name = "ingestExecutor")
+    private Executor asyncExecutor; // 课件切块专用池（AsyncThreadPoolConfig 中定义，与 SSE 问答流的 sseExecutor 隔离），禁止用默认公共池
 
     @Value("${file.upload-dir}") // application.yml 配置绝对路径: ${user.home}/smartqa/uploads/
     private String uploadDir;
@@ -448,7 +448,7 @@ public class TeacherQaController {
 - 全部返回 `Result<T>` 统一包装，路径与矩阵**逐字符一致**（前端已按此写死）。
 - 课程/会话类接口必须带 **Sa-Token 登录校验**，并按角色过滤数据（学生只能看自己的会话）。
 - `feedback` 接口必须校验 `status` 只能是 `1` 或 `-1`，其余值返回参数错误。
-- `reindex` 属于重建索引，耗时较长，**必须异步执行**（用 `sseExecutor`，禁止默认线程池）。
+- `reindex` 属于重建索引，耗时较长，**必须异步执行**（用课件切块专用池 `ingestExecutor`，禁止默认线程池）。
 - ✅ **逻辑删除列已全部齐备（v3.0 修复）**：`application.yml` 配了全局 `logic-delete-field: isDeleted`，因此**6 张表都必须有 `is_deleted` 列**——本章 DDL 已逐表补齐。后续改动 DDL 时严禁漏掉任一列：缺列的表调用 `removeById()` 会直接抛 `Unknown column 'is_deleted'`。
 
 **重建索引骨架**（`TeacherDocumentController` 内新增，教师端"重建索引"按钮直接对接此接口）：
