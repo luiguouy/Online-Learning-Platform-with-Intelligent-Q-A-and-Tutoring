@@ -24,12 +24,14 @@
 5. **绝对禁止在代码和公共配置中硬编码真实生产密钥**：
    - 严禁将任何真实的大模型 API Key 或生产数据库密码提交至 Git 仓库。
    - 本地开发统一通过 `application-local.yml`（已加入 `.gitignore`）或环境变量（`${AI_API_KEY}`、`${MYSQL_PASSWORD}`）注入。公共 `application.yml` 中的占位默认值仅供本地离线沙箱开箱即用。
-6. **文档中的命令行必须「可执行或可替代」（2026-10-04 由 Issue #64 确立）**：
-   - 项目文档（`README.md`、`dev-docs/**`、各成员指南）里出现的**任何命令行**，必须满足二者之一：
+6. **文档中的命令行必须「可执行或可替代」（2026-10-04 由 Issue #64 确立；③ 档同日由 A 补）**：
+   - 项目文档（`README.md`、`dev-docs/**`、各成员指南）里出现的**任何命令行**，必须满足三者之一：
      ① **仓库内可直接执行** —— 涉及的脚本与路径均在版本控制内；
-     ② **显式标注「本地产物 / 未入库」**，**并同时给出他人可用的等价路径**。
-   - ❌ 反例（本规则立项前实际出现，已修）：`bash 项目/D/backend-start/start-backend.sh` —— `项目/D/` 是成员 D 的本地目录，不在仓库内，他人照做必然失败。
-   - ✅ 正例：`backend/run-local.ps1`（仓库内）；或写「本机脚本（未入库）；他人等价：在 `backend/` 执行 `.\run-local.ps1`」。
+     ② **显式标注「本地产物 / 未入库」**，**并同时给出他人可用的等价路径**；
+     ③ **命令在部分环境不可执行时，同样要给出该环境的等价写法** —— 典型两类：POSIX shell 语法（`export` / `unset` / `<` 输入重定向）在 Windows PowerShell 下直接报错；npm script 的 shim 在 pwsh 下把模块路径解析到 workspace 父目录。
+   - ❌ 反例（①② 档，本规则立项前实际出现，已修）：`bash 项目/D/backend-start/start-backend.sh` —— `项目/D/` 是成员 D 的本地目录，不在仓库内，他人照做必然失败。
+   - ❌ 反例（③ 档，**本文自己曾犯**，已修）：§5 冒烟清单第 2 项原本只写 `npm run build`，而它在 Windows PowerShell 下会报 `Cannot find module '...\vue-tsc\bin\vue-tsc.js'`（`MODULE_NOT_FOUND`）—— 与代码无关，CI 在 Ubuntu 上正常，所以很容易长期没人发现。**规则立项当天就由它自己的正文破了例**，故此处一并补上等价写法。
+   - ✅ 正例：`backend/run-local.ps1`（仓库内）；或写「本机脚本（未入库）；他人等价：在 `backend/` 执行 `.\run-local.ps1`」；③ 档如「`export X=…`（POSIX）／PowerShell 等价 `$env:X='…'`」。
    - 参照 `dev-docs/B3-第三周交付与验收报告.md` §四.1 对 probe 脚本的处理方式。
 
 ---
@@ -322,6 +324,12 @@ ON DUPLICATE KEY UPDATE id=id;
 在宣布编码完成前，Agent 必须自行验证通过以下 7 项冒烟测试。**适用时机**：第 1~2 周做单个模块时跑第 1~3 项即可（前端第 2 项）；第 4~7 项依赖登录与 SSE 链路，从第 2 周（Day 11 前后）联调阶段起逐次适用，第 1 周跑不通属正常，不要为了凑清单去造假输出。
 1. **编译构建测试**：`mvn clean package -DskipTests` 执行成功，生成 jar 包无报错。
 2. **前端类型测试**：必须先跑 `npx vue-tsc --noEmit`（零报错），再跑 `pnpm run build` 或 `npm run build` 成功。**注意：`vite build` 本身不做类型检查，build 通过 ≠ 类型测试通过**，vue-tsc 这一步不能省。
+   - ⚠️ **Windows PowerShell 下这两条命令都可能报 `MODULE_NOT_FOUND`**（npm/npx 的 shim 把模块路径解析到 workspace 父目录，与代码无关；CI 在 Ubuntu 上正常）。此时**不要判定为代码有问题、更不要跳过本项**，改用直调模块的等价写法（在 `frontend-student` / `frontend-teacher` 目录内，已实测）：
+     ```powershell
+     node .\node_modules\vue-tsc\bin\vue-tsc.js --noEmit
+     node .\node_modules\vite\bin\vite.js build
+     ```
+     两者退出码为 0 即等价于本项通过（本条即 §1 第 6 条规则的 ③ 档）。
 3. **数据库连接测试**：Spring Boot 启动日志显示 Hikari 连接池初始化成功，表结构自动加载无语法异常。
 4. **鉴权闭环测试**：使用 `teacher01` / `123456` 登录成功，拿到 token 并成功访问 `/api/teacher/docs/list`。
 5. **文件上传测试**：上传一份带有文字的测试 PDF，控制台无 OOM 异常，文件保存在指定上传路径，状态变为 `CHUNKED`。
