@@ -154,6 +154,12 @@ export const useChatStore = defineStore('chat', () => {
     // C3.2 修缺陷：漏清失败态会让「上一次历史问答加载失败」的错误占位压住新建的空会话，
     // 用户唯一的出路是去点重试 —— 新建的会话永远进不去。
     recordsError.value = '';
+    // #59 修复：上面的 recordsToken++ 会让在途 selectSession 的 finally 守卫
+    // （`if (token === recordsToken)`）永远不成立，那个分支正是唯一复位 loadingRecords 的地方。
+    // 于是在「点历史会话 → 响应回来前点新建」时，loadingRecords 置 true 后再无人复位，
+    // 消息区被加载骨架屏永久挡住（ChatWorkspace 的 v-else-if 分支优先于空态与消息列表）。
+    // 作废在途请求的同时必须自己收回 loading 态 —— 作废与复位是一对，不能只做前一半。
+    loadingRecords.value = false;
   }
 
   /**
@@ -286,13 +292,27 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  /** 清空当前展示（新建会话 / 退出登录时调用） */
+  /**
+   * 清空当前展示（课程加载失败 / 退出登录时调用）。
+   *
+   * #59 同类加固：clear() 是「把这门课的一切都丢掉」，但原先只清 state、不作废在途请求。
+   * 两个后果与 #59 同源：
+   *  ① 未复位 loadingRecords / loadingSessions —— 若在途请求被 clear 打断，
+   *     它们的 finally 守卫因令牌未推进而失效（或干脆不再复位），界面留下永久骨架屏；
+   *  ② 更严重：在途的 listRecords 仍持有未作废的令牌，响应回来后会把**上一门课**的
+   *     消息写进已清空的 store —— 用户明明在课程 C，消息区却渲染课程 B 的问答（串会话）。
+   * 因此这里必须推进两个令牌，让在途响应在落 state 前就被丢弃；loading 态自己收回。
+   */
   function clear(): void {
+    recordsToken++;
+    sessionsToken++;
     stopStream();
     sessions.value = [];
     currentSessionId.value = 0;
     messages.value = [];
     recordsError.value = '';
+    loadingRecords.value = false;
+    loadingSessions.value = false;
   }
 
   return {

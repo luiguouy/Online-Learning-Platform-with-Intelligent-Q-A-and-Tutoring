@@ -72,11 +72,18 @@ export class SseChatClient {
     // onError 去重：fetch-event-source 的 onerror 抛出后会被 reject 落进外层 catch，
     // 若两处都回调会导致一次断连弹两条错误、消息被 push 两遍、streaming 标记重复复位。
     // 用闭包标志保证整次调用只对外通知一次错误。
+    //
+    // #59 技术债：errorCode 原为硬编码 -1，服务端真实业务码被丢弃，types/index.ts 里
+    // SseErrorPayload.errorCode 的声明形同虚设。现改为透传：error 事件取 payload.errorCode，
+    // onopen 拒绝（恒 HTTP200 + Result 包，或 429）取 Result.code，两者皆无才回落 -1。
+    // 当前无消费方（chatStore.onError 只用 message），故行为不变；但为将来「按错误类型分支」
+    // （例如收到「会话不属于当前课程」时自动重拉会话列表）留出判据。
     let errorNotified = false;
-    const notifyError = (message: string): void => {
+    let openRejectCode = -1;
+    const notifyError = (message: string, errorCode: number = -1): void => {
       if (errorNotified) return;
       errorNotified = true;
-      callbacks.onError?.({ errorCode: -1, message });
+      callbacks.onError?.({ errorCode, message });
     };
 
     // token 键名统一 satoken（只是本地存储名，与请求头名无关）
@@ -109,6 +116,8 @@ export class SseChatClient {
             | { code?: number; message?: string }
             | null;
           const code = body?.code ?? response.status;
+          // 记下真实业务码，交给外层 catch 的 notifyError 透传到 onError
+          openRejectCode = code;
           if (code === 401) {
             useUserStore().clearSession();
             const current = encodeURIComponent(
@@ -151,7 +160,7 @@ export class SseChatClient {
                 errorCode: -1,
                 message: msg.data,
               };
-              notifyError(payload.message);
+              notifyError(payload.message, payload.errorCode);
               break;
             }
             default: {
@@ -175,7 +184,10 @@ export class SseChatClient {
       if (error instanceof Error && error.name === 'AbortError') {
         return;
       }
-      notifyError(error instanceof Error ? error.message : String(error));
+      notifyError(
+        error instanceof Error ? error.message : String(error),
+        openRejectCode,
+      );
     } finally {
       // 只清理属于本次调用的 controller，避免误清新请求的（重叠调用竞态）
       if (this.abortController === controller) {
