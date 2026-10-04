@@ -73,7 +73,7 @@ backend/
     │   │   └── GlobalExceptionHandler.java  401/403/400/404/429/500 分档处理
     │   ├── config/
     │   │   ├── MybatisPlusConfig.java       分页插件（不配 IPage 分页会失效）
-    │   │   ├── AsyncThreadPoolConfig.java   sseExecutor 专用线程池（Bean 名固定）
+    │   │   ├── AsyncThreadPoolConfig.java   sseExecutor / ingestExecutor 双专用池（Bean 名固定）
     │   │   └── SaTokenConfigure.java        路由鉴权 + 限流拦截器注册
     │   ├── auth/
     │   │   └── StpInterfaceImpl.java        ★ 不实现则教师端全部 403
@@ -270,7 +270,7 @@ public interface DocumentIngestionService {
 }
 ```
 
-- B 负责把课件落盘、落库、把状态推到 `PARSING`，然后**在 sseExecutor 线程池里异步调用**；
+- B 负责把课件落盘、落库、把状态推到 `PARSING`，然后**在 `ingestExecutor`（课件切块专用池，与 SSE 问答流的 `sseExecutor` 隔离）里异步调用**；
 - 切块成功/失败后的状态回写**由 B 自己的异步块完成**，A 不需要回调任何方法；
 - 若 A 在别的包下已有同名接口，**删掉 B 目录下的这份、保留 A 的**，方法签名必须一致。
 

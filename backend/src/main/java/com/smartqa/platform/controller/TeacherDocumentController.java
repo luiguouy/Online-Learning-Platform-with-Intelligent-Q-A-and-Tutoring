@@ -230,7 +230,12 @@ public class TeacherDocumentController {
     }
 
     /**
-     * 在 sseExecutor 中异步执行「切块向量化 → 状态回写」。
+     * 在 ingestExecutor 中异步执行「切块向量化 → 状态回写」。
+     *
+     * <p>注意池名：本任务跑在<b>课件切块专用池 {@code ingestExecutor}</b> 上，与 SSE 问答流的
+     * {@code sseExecutor} 是<b>两个隔离的池</b>（见 {@code AsyncThreadPoolConfig}）。
+     * 早期注释曾误写为 {@code sseExecutor}，排查切块积压时请查 {@code ingestExecutor} 的
+     * 活跃数与队列，不要查错池。</p>
      *
      * <p>状态回写由本异步块自己完成（成功置 CHUNKED + 分块数，异常置 FAILED + errorMsg），
      * 成员 A 不需要回调任何方法。异常必须兜住，否则前端会永远显示"切块向量化中"。</p>
