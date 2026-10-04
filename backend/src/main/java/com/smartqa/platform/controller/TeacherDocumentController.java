@@ -221,7 +221,31 @@ public class TeacherDocumentController {
         }
 
         // 2. 再清旧向量，否则重建会产生重复切片（CAS 已成功，此刻无其他在途切块）
-        ingestionService.removeDocumentVectors(id);
+        //
+        // 【Issue #57 §一】清理失败绝不能让状态停在 PARSING：上面 markParsingIfSettled 只放行
+        //   CHUNKED/FAILED，若此处抛异常使状态留在 PARSING，该课件将**永久无法再次重建**（自锁）：
+        //   再点一次会被 409 拒、刷新无效，而前端轮询到 2 分钟自行停止后显示的仍是
+        //   “切块向量化中”，教师根本看不出已经卡死。故这里显式回置 FAILED（终态），
+        //   既让用户看到失败原因，又因 FAILED 在 CAS 放行集合内而可以重试。
+        //
+        // ⚠️ 与 delete() 的「③ 删后复扫」处理方式**刻意相反**，不要照着那边改：
+        //   delete() 里“删除”这一业务事实已经成立，③ 只是补偿，所以失败只记 ERROR 仍返回业务成功；
+        //   而这里的清理是重建的**必要前置**，没清干净就继续切块恰恰会产生重复切片，
+        //   所以必须中止、回置失败并把原因告知用户。
+        try {
+            ingestionService.removeDocumentVectors(id);
+        } catch (Exception e) {
+            log.error("[#57] reindex 清理旧向量失败，已回置 FAILED 以便重试, docId={}", id, e);
+            try {
+                docService.markFailed(id, "重建索引失败：清理旧向量未成功（向量库可能暂时不可用），请稍后重试");
+            } catch (Exception inner) {
+                // 回置也失败：课件会停在 PARSING（即本方法要防的那个状态）。此时已无更好的选择，
+                // 但两个异常都必须留在日志里且带 docId，否则人工也无法定位该课件。
+                log.error("[#57] 回置 FAILED 亦失败，课件状态可能停留在 PARSING，需人工按 docId 修正, docId={}",
+                        id, inner);
+            }
+            throw new BusinessException(500, "重建索引失败：旧向量清理未成功，请稍后重试");
+        }
 
         // 3. 异步重新切块
         submitIngestion(id, doc.getCourseId(), doc.getFileName(), doc.getFilePath(), teacherId);
