@@ -98,7 +98,7 @@ npm run build            # 后跑（内部已含 vue-tsc）
 | `teacher01` | `123456` | TEACHER | 进入教师后台 |
 | `student01` | `123456` | STUDENT | 验证角色守卫：会被拒绝并提示"无权访问教师管理后台" |
 
-> ⚠️ **Mock 通道已于 D2.1（2026-09-17）删除**（`USE_MOCK = false`、`src/mock/` 已整目录移除）—— 上述账号须连**真实后端**（`bash 项目/D/backend-start/start-backend.sh` → `http://localhost:8080`）方可登录。
+> ⚠️ **Mock 通道已于 D2.1（2026-09-17）删除**（`USE_MOCK = false`、`src/mock/` 已整目录移除）—— 上述账号须连**真实后端**方可登录：在 `backend/` 目录执行 `.\run-local.ps1`（它加载 `backend/.env` 后以 `local` profile 启动，默认 `http://localhost:8080`）。
 
 ---
 
