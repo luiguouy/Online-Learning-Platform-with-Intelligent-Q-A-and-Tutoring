@@ -97,6 +97,19 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  * 也就是说：<b>本类证明的是"修复逻辑在理想向量库语义下成立"，不等于"在真实 Chroma 下也成立"</b>
  * （已核实 langchain4j 0.35.0 的 {@code ChromaEmbeddingStore} 确实实现了 {@code removeAll(Filter)}，
  * 故生产不会静默失效，但该语义无自动化覆盖）。<b>真实 Chroma 下的验证由 Issue #58 的人工复测承担。</b></p>
+ *
+ * <p><b>✅ 该落差已于 2026-10-04 由 D 在真实 Chroma 下闭合</b>（详见 Issue #58 的复测帖）：
+ * 把 {@code rag.chroma.base-url} 用环境变量指到真实 Chroma 后，本类 3 条用例 <b>3/3 通过</b>；
+ * 且"临时禁用 ③ 删后复扫"的变异<b>只令用例 2 变红</b>（{@code expected: <0> but was: <1>}）——
+ * 这证明"紧邻的 {@code removeAll(filter)} 能看见刚 {@code addAll} 的切片"这一前提在
+ * Chroma over HTTP + 持久化下确实成立，不再只是 InMemory 里被白送的语义，
+ * 同时也再次表明三条用例并非恒绿。</p>
+ *
+ * <p><b>⚠️ 真实 Chroma 下的运行前置（来自上述复测的观察）</b>：每次运行前须先清空该 Chroma 库。
+ * 上下文启动时 {@code LangChain4jConfig} 会无条件 {@code createCollection}，而 langchain4j 0.35.0
+ * <b>没有 get-or-create</b>，collection 已存在即返回 {@code 409 UniqueConstraintError} ——
+ * 也就是 <b>Issue #65</b> 那个"启用真实 Chroma 后后端无法二次启动"的缺陷（属应用启动期问题，
+ * 与本测试逻辑无关）。在 #65 修复前，重跑本类前需先删除该 collection，或清空 Chroma 数据目录。</p>
  */
 @SpringBootTest
 @AutoConfigureMockMvc
