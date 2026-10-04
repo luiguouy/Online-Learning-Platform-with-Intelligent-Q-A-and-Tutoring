@@ -193,7 +193,7 @@ file:
    private Executor asyncExecutor;
    ```
    - **两个池均采用 `ThreadPoolExecutor.AbortPolicy`**：满了直接拒绝，**不得改成 `CallerRunsPolicy`**。`CallerRuns` 会把任务回落到提交线程（Tomcat HTTP 线程）执行，一两个慢流就能把 Tomcat 线程池拖空 → 全站拒绝服务；宁可快速失败返回「服务繁忙」。
-   - 池满被拒的异常**两种调度机制不同**，调用方必须各自接住：`@Async` 提交抛 Spring 的 `TaskRejectedException`（SSE 侧 → 下发 `error` 事件，错码 5003）；手动 `runAsync` 提交抛 `RejectedExecutionException`（切块侧 → 把课件置 `FAILED`，**否则永久卡在 `PARSING`**）。
+   - 池满被拒时**两条路径实际抛的都是 Spring 的 `TaskRejectedException`**（`ThreadPoolTaskExecutor` 的 `execute()`/`submit()` 会把底层 `RejectedExecutionException` 包装一层再抛，`CompletableFuture.runAsync` 走的正是 `Executor.execute()`；`TaskRejectedException` 继承自 `RejectedExecutionException`，故按父类兜底即同时接住两者）。**差异在收尾动作、不在异常类型**：SSE 侧 → 下发 `error` 事件，错码 5003；切块侧 → 把课件置 `FAILED`，**否则永久卡在 `PARSING`**）。
    - 两池均设 `waitForTasksToCompleteOnShutdown(true)`；`awaitTerminationSeconds` 为 sse 30s / ingest 60s，避免优雅停机时在途任务被直接丢弃。
    - **异步线程内取不到登录态**：`sseExecutor` / `ingestExecutor` 的任务体里 Sa-Token 的 ThreadLocal 不可用，用户 ID 必须在请求线程先取好再当参数传入（详见 `QaRecordService` / `QaSessionService` 的相关注释）。
 3. **MyBatis-Plus JSON 字段注解**：
