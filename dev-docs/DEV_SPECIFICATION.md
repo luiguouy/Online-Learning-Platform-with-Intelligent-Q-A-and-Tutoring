@@ -171,7 +171,7 @@ src/
 
 1. **颜色只用主题变量** —— `var(--el-color-primary*)`、`var(--app-*)`；不写死十六进制（纯 `#fff` / `#000` 可接受）。
 2. **不引入依赖白名单外的 UI 库 / 图标库** —— 图标只用 `@element-plus/icons-vue`。
-   > 判据：查 `package.json` 的 `dependencies`（白名单见 `D-AI约束.md` 第三章）。
+   > 判据：查 `package.json` 的 `dependencies`（规则见 `dev-docs/AGENT_INSTRUCTIONS.md` 第 2 条）。
    > ⚠️ **不要用全仓 `grep` 判定** —— 注释里可能出现关键词造成**假阳性**（如学生端 `MarkdownViewer.vue` 有一条"不引 Tailwind"的注释）。
 3. **样式一律 `<style scoped>`**，不污染全局选择器。
 
@@ -212,7 +212,7 @@ grep -rn "border-radius" frontend-{teacher,student}/src
 本节正文「样式规范」原写有「统一使用 `<style scoped>` **或 Tailwind CSS 工具类**」，但实测：
 
 - 两端 `package.json` 的 `dependencies` **均无任何 Tailwind 相关项**，实际实现统一为 `<style scoped>`；
-- `D-AI约束.md` 的依赖白名单**亦不含 Tailwind**。
+- `dev-docs/AGENT_INSTRUCTIONS.md` 第 2 条**亦禁止擅自引入未约定依赖**（Tailwind 不在白名单内）。
 
 **处置结果**：组长已确认，正文该句的「或 Tailwind CSS 工具类」**已删去**，同时修正同行笔误「污染全局全局样式选择器」→「污染全局样式选择器」。正文与本附录现已一致，原「提请确认」 note 由本条取代，Issue #60 关闭。
 
