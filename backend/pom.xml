@@ -23,7 +23,7 @@
         <maven.compiler.target>17</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-        <langchain4j.version>0.35.0</langchain4j.version>
+        <langchain4j.version>0.36.2</langchain4j.version>
         <mybatis-plus.version>3.5.7</mybatis-plus.version>
         <sa-token.version>1.38.0</sa-token.version>
         <knife4j.version>4.5.0</knife4j.version>
@@ -69,6 +69,20 @@
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-document-parser-apache-tika</artifactId>
             <version>${langchain4j.version}</version>
+        </dependency>
+        <!--
+          spike(A-langchain4j-0362)：显式抬 commons-io 版本。
+          langchain4j 0.36.2 的 tika parser 在解析时会触到 tika 内部使用
+          org.apache.commons.io.input.ChecksumInputStream 的代码路径。已用解 jar 方式逐个确认：
+          该类**首次出现在 commons-io 2.16.1**（2.14.0 / 2.15.1 均无），而 tika-core 2.9.1
+          只传递带来 2.14.0 → 编译不报错、**只在运行时报 NoClassDefFoundError**，
+          表现为所有课件解析失败（并被 translateParseError 兜底文案伪装成“文件内容无法识别/已损坏”）。
+          此处取**最低含该类的版本**（2.16.1）以保持最小变更。
+        -->
+        <dependency>
+            <groupId>commons-io</groupId>
+            <artifactId>commons-io</artifactId>
+            <version>2.16.1</version>
         </dependency>
 
         <!-- MyBatis-Plus 增强 (成员 B: 后端业务/持久层) -->
