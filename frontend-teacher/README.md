@@ -98,7 +98,7 @@ npm run build            # 后跑（内部已含 vue-tsc）
 | `teacher01` | `123456` | TEACHER | 进入教师后台 |
 | `student01` | `123456` | STUDENT | 验证角色守卫：会被拒绝并提示"无权访问教师管理后台" |
 
-> ⚠️ **Mock 通道已于 D2.1（2026-09-17）删除**（`USE_MOCK = false`、`src/mock/` 已整目录移除）—— 上述账号须连**真实后端**（`bash 项目/D/backend-start/start-backend.sh` → `http://localhost:8080`）方可登录。
+> ⚠️ **Mock 通道已于 D2.1（2026-09-17）删除**（`USE_MOCK = false`、`src/mock/` 已整目录移除）—— 上述账号须连**真实后端**方可登录：在 `backend/` 目录执行 `.\run-local.ps1`（它加载 `backend/.env` 后以 `local` profile 启动，默认 `http://localhost:8080`）。
 
 ---
 
@@ -212,7 +212,7 @@ src/
 
 ## 九、执行纪律
 
-写代码前请先阅读工作区根目录的 `D-AI约束.md`（防幻觉 / 防偏航约束）与 `D任务.md`（任务清单）。要点：
+写代码前请先阅读 `dev-docs/AGENT_INSTRUCTIONS.md`（禁令与配置模板）与 `dev-docs/MEMBER_D_DEV_GUIDE.md`（D 模块设计与任务范围）。要点：
 
 1. 只做文档里写的任务，AI 提的"加个功能"一律拒绝。
 2. AI 说"完成了"不算数，`vue-tsc` + `build` 两条命令跑过才算数。

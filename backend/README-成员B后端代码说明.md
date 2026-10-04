@@ -10,6 +10,16 @@
 
 ### 1. 建库导数据
 
+> ⚠️ 需**本机已安装 MySQL 的命令行客户端 `mysql`**（仓库不随附）；且 `mysql … < 文件` 是 bash/cmd 写法 ——
+> **Windows PowerShell 不支持 `<` 输入重定向**（会报 `The '<' operator is reserved for future use.`）。
+> **PowerShell 等价**：
+> ```powershell
+> Get-Content src/main/resources/db/schema.sql | mysql -u root -p
+> Get-Content src/main/resources/db/data.sql   | mysql -u root -p smart_qa
+> ```
+> 或 `cmd /c "mysql -u root -p < src/main/resources/db/schema.sql"`。
+> **无 `mysql` CLI 的等价做法**：用 Navicat / DBeaver / JDBC 等任意客户端依次执行这两个 `.sql` 文件即可（两者均在仓库内：`src/main/resources/db/schema.sql`、`data.sql`）。
+
 ```bash
 mysql -u root -p < src/main/resources/db/schema.sql
 mysql -u root -p smart_qa < src/main/resources/db/data.sql
@@ -31,13 +41,19 @@ mysql -u root -p smart_qa < src/main/resources/db/data.sql
 `src/main/resources/application-local.yml`：
 
 ```bash
-export MYSQL_PASSWORD=你的密码
+export MYSQL_PASSWORD=你的密码                        # POSIX shell
 export AI_API_KEY=sk-xxxx      # 成员 A 用，B 的模块不依赖
 ```
+> **PowerShell 等价**：`$env:MYSQL_PASSWORD='你的密码'`、`$env:AI_API_KEY='sk-xxxx'`（同一会话内生效）。
+> **IDE 等价**：直接在 Run/Debug 配置里加同名环境变量，无需命令行。
 
 **绝对不要把真实 Key 或生产密码写进 application.yml 并提交。**
 
 ### 3. 编译与启动
+
+> ⚠️ `mvn` 需**本机已安装 Maven 3.9+**（仓库未内置 `mvnw`/`mvnw.cmd`，故不给 wrapper 等价命令）。
+> **等价路径**：① 安装 Maven 并把 `bin` 加入 `PATH`；或 ② 用 IDE 的 Maven 面板执行同名 goal；
+> 或 ③ 直接跑仓库内脚本 `backend/run-local.ps1`（= `mvn spring-boot:run` 且加载 `backend/.env`，以 `local` profile 启动）。
 
 ```bash
 mvn clean compile        # 验收命令：必须看到 BUILD SUCCESS
