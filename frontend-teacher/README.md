@@ -212,7 +212,7 @@ src/
 
 ## 九、执行纪律
 
-写代码前请先阅读工作区根目录的 `D-AI约束.md`（防幻觉 / 防偏航约束）与 `D任务.md`（任务清单）。要点：
+写代码前请先阅读 `dev-docs/AGENT_INSTRUCTIONS.md`（禁令与配置模板）与 `dev-docs/MEMBER_D_DEV_GUIDE.md`（D 模块设计与任务范围）。要点：
 
 1. 只做文档里写的任务，AI 提的"加个功能"一律拒绝。
 2. AI 说"完成了"不算数，`vue-tsc` + `build` 两条命令跑过才算数。
