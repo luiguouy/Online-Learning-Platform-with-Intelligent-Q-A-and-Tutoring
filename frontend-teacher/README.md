@@ -60,8 +60,10 @@
 > - **Q17 已落地**：`CourseDocManage.vue` 加轮询兜底——3 秒轮询 + **最长 2 分钟自动停** + 页面「刷新」按钮（手动刷新与上传成功都会重置 2 分钟窗口），超时展示 `el-alert` 告示条。
 > - **Q7~Q13 待成员 B**：已在 `src/types/index.ts`、`src/api/teacher.ts` 标 `TODO` 注明当前口径，不阻塞本周。
 
+> **✅ 合并状态（2026-09-29）：本工程第 3 周全部改动已随 [PR #47](https://github.com/luiguouy/Online-Learning-Platform-with-Intelligent-Q-A-and-Tutoring/pull/47) 合并进 `dev`**（merge commit `06e53dc`），**CI 5 项全绿**（教师端构建 / 学生端构建 / 前端构建 / 后端编译与测试 / 密钥扫描）。
+>
 > **D3.1（09-23 起，09-27 收口）：全链路端到端测试 + P2-1 / 上传口径 / 竞态修复**
-> - **测试报告（已入库）**：`dev-docs/D3-第三周交付与验收报告.md` —— D 侧 30 用例 / 28 通过 + **跨端链路 6 项全通**；**D 侧 P0 = 0，P1 全部闭环**
+> - **测试报告（已入库并合并）**：`dev-docs/D3-第三周交付与验收报告.md` —— D 侧 30 用例 / 28 通过 + **跨端链路 6 项全通**；**D 侧 P0 = 0，P1 全部闭环**。外部复核后追加的**轮询守卫回归修复**（`9988e48`）也含在内 —— 该修复把「课程代」推进限定为用户主动动作，避免慢网络下 `syncPolling()` 被过期响应守卫一并挡掉，导致 **2 分钟超时保护与列表刷新双双静默失效**
 > - **P2-1 修复**：课件页「上传时间」原为 `prop` 直绑 ISO 原始串，改用 `formatDateTime()`；本地 `formatTime` 抽到 `src/utils/format.ts`（两页共用，消除同项目两处不一致）
 > - **上传大小口径对齐（Issue #46 裁决）**：`DocUploadModal.vue` 上限 **50MB → 20MB**（常量 / 常量注释 / 提示文案 / 校验变量名 `isLt50M→isLt20M` 共 4 处），与后端解析层 `rag.ingest.max-file-bytes` 一致；后端与 multipart 配置均未改动
 > - **跨端链路实测**：学生提问 → `event:references`（命中 `第3章 内存管理.pdf`，相关度 **0.887**）→ `event:message` 流式 → `event:done`（含 recordId）→ **教师端问答记录可见**（含 4 条参考出处）
@@ -89,14 +91,14 @@ npx vue-tsc --noEmit     # 先跑：能查出"模板里调用了不存在的方�
 npm run build            # 后跑（内部已含 vue-tsc）
 ```
 
-### Mock 阶段可用账号
+### 本机联调账号（真实后端；Mock 通道已于 D2.1 删除）
 
 | 账号 | 密码 | 角色 | 用途 |
 | :--- | :--- | :--- | :--- |
 | `teacher01` | `123456` | TEACHER | 进入教师后台 |
 | `student01` | `123456` | STUDENT | 验证角色守卫：会被拒绝并提示"无权访问教师管理后台" |
 
-> Mock 模式下无需后端即可完整体验：登录 → 课件列表 → 上传进度 → 状态 3 秒轮询（PARSING 会自动转 CHUNKED）→ 删除。
+> ⚠️ **Mock 通道已于 D2.1（2026-09-17）删除**（`USE_MOCK = false`、`src/mock/` 已整目录移除）—— 上述账号须连**真实后端**（`bash 项目/D/backend-start/start-backend.sh` → `http://localhost:8080`）方可登录。
 
 ---
 
@@ -148,7 +150,7 @@ src/
 | :--- | :--- | :--- | :--- |
 | 1 | 登录页属于成员 C（C1.4） | 本工程实现了最小可用的 `LoginView.vue` | 角色守卫（D1.2）必须有一个登录入口才能自测。**Q2 已拍板：教师端独立工程成立，本页保留**（组长 A 2026-09-13） |
 | 2 | 学生越权后重定向到 `/student/chat` | 改为清除会话 + 回 `/login` | `/student/chat` 属于 C 的学生端工程，本工程不存在该路由，直接跳转会导致 404 与守卫循环 |
-| 3 | `MEMBER_D_DEV_GUIDE.md` 示例代码使用 Tailwind 类名（`p-6`、`text-slate-900` 等） | 改用 `<style scoped>` 原生 CSS（含 D2.3 的问答记录页） | Tailwind 不在本项目 `package.json` 依赖白名单内（`DEV_SPECIFICATION.md` 3.2 允许二选一） |
+| 3 | `MEMBER_D_DEV_GUIDE.md` 示例代码使用 Tailwind 类名（`p-6`、`text-slate-900` 等） | 改用 `<style scoped>` 原生 CSS（含 D2.3 的问答记录页） | Tailwind 不在本项目 `package.json` 依赖白名单内。⚠️ `DEV_SPECIFICATION.md` 3.2 正文原写「`<style scoped>` **或** Tailwind CSS 工具类」，与实际不符 —— 已由 A 单列 **Issue #60** 跟进删改正文（Q18 视觉基线 PR #50 附录 §5 提出） |
 | 4 | 后台含"课件知识库管理"与"问答记录查看"两个子系统 | 第 1 周只挂一个菜单；**D2.3（2026-09-19）已补上「问答记录查看」** | 第 1 周按"一次只做一个任务"的纪律不提前实现 D2.3 |
 | 5 | 课件上传按示例用 `action` + `:headers` 手动补鉴权头 | 保留该真实通道；Mock 阶段改用 `http-request` 走本地模拟 | Mock 阶段不存在后端上传端点，`action` 会直接报错，无法满足 D1.4"能选择文件并显示进度"的验收标准 |
 | 6 | `MEMBER_D_DEV_GUIDE.md` 4.2 把「课程下拉」放在**问答记录页内** | 改用 `TeacherLayout` 顶栏的**全局**课程选择器，页内不再重复放一个 | 顶栏已有全局课程选择器（两个子页面共用 `useCourseStore.currentCourseId`）；页内再放一个会造成双选择器与状态不一致，且与 `CourseDocManage.vue` 的做法保持一致 |
