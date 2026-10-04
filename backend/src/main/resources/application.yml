@@ -4,20 +4,27 @@ server:
   # 提问长度上限（与 SseChatController.MAX_QUESTION_LENGTH 配套，勿单独改）
   #
   # 背景：SSE 接口 GET /api/qa/chat/stream 把 question 放在 query string（契约冻结为 GET）。
-  # Tomcat 在 Http11InputBuffer.parseRequestLine 处对「请求行 + 请求头」做长度校验，
-  # 超限直接抛 IllegalArgumentException: Request header is too large，
-  # 由容器返回 431/400，**请求根本进不到 Controller**，前端 EventSource 只看到无信息失败。
+  # Tomcat 在 Http11InputBuffer.fill() / parseHeaders() 处做长度校验（比较 byteBuffer 位置与
+  # headerBufferSize；parseRequestLine 自身不含该校验，请求行与请求头共用同一字节预算），
+  # 超限抛 IllegalArgumentException: Request header is too large（键 iib.requestheadertoolarge.error），
+  # 容器直接返回 HTTP 400，**请求根本进不到 Controller**，前端 EventSource 只看到无信息失败。
   #
-  # 【实测数据（二分逼近，本机 Tomcat 10.1）】
-  #   - 不配本项（Tomcat 默认）：请求行上限 ≈ 8056 字节（约 8KB）
-  #   - 配 max-http-request-header-size: 64KB：请求行上限 ≈ 16370 字节（约 16KB）
-  # 结论：本项**确实**会抬高请求行上限（此前误判为"无效"，已纠正）；
-  #       实测上限约为配置值的 1/4 而非等值——Tomcat 对该缓冲的分配并非简单等于配置值，
-  #       因此**不能**按 64KB 反推可用提问长度，必须以实测值为准。
+  # 【实测数据：原始 socket 二分逼近 + 精确记账；本机 Tomcat 10.1 / Spring Boot 3.3.5】
+  #   计数口径 = 「请求行 + 所有请求头 + 各行 CRLF + 结束空行」的总字节数
+  #   - 不配本项（Spring Boot 默认 8KB）→ 上限 8192 字节（填充头 8068B 通过 / 8069B 拒绝）
+  #   - 配 64KB                        → 上限 65536 字节（填充头 65412 通过 / 65413 拒绝）
+  # 结论：
+  #   1) 上限**恰好等于配置值（1:1）**。此前注释写的「≈8056 / ≈16370 字节」「约为配置值的
+  #      1/4」是测量口径错误（把"请求行"与"请求行+请求头"混为一谈），已由实测推翻；
+  #   2) 超限返回 **HTTP 400**，不是 431；
+  #   3) 所以本项**不是可选项而是前提**：删掉本行，上限掉回 8192 字节，实测中文提问超过
+  #      **888 字**（8189 字节通过 / 889 字 8198 字节被拒）就会被容器以 HTTP 400 直接拒掉，
+  #      远低于业务上限 1600 字 —— 即"提问太长应走 event:error 友好提示"这条保障会退化成
+  #      "请求进不到 Controller 的无信息失败"。**本项与 MAX_QUESTION_LENGTH 配套，不可单独删改。**
   #
-  # 由此确定业务上限 MAX_QUESTION_LENGTH = 1600 字：
-  #   1600 字 × 约 9 字节/字（中文 URL 编码）= 14400 字节 < 实测 16370 字节，留约 2KB 余量。
-  # 这样"提问太长"会走 event:error {errorCode:4000} 友好返回，而不是被协议层断连。
+  # 余量：1600 字 × 约 9 字节/字（中文 URL 编码）≈ 14400 字节，仅占 64KB 预算的 22%，
+  #       协议层余量充足。故业务上限的定位是**产品级输入约束 + 友好的 event:error 提示**，
+  #       而不是"防止被协议层断连"（在 64KB 配置下不会发生）。
   # ==========================================================================
   max-http-request-header-size: 64KB
   servlet:
