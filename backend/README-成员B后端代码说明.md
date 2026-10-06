@@ -12,12 +12,20 @@
 
 > ⚠️ 需**本机已安装 MySQL 的命令行客户端 `mysql`**（仓库不随附）；且 `mysql … < 文件` 是 bash/cmd 写法 ——
 > **Windows PowerShell 不支持 `<` 输入重定向**（会报 `The '<' operator is reserved for future use.`）。
-> **PowerShell 等价**：
+> **PowerShell 首选（字节原样，不做任何编码转换）**：
 > ```powershell
-> Get-Content src/main/resources/db/schema.sql | mysql -u root -p
-> Get-Content src/main/resources/db/data.sql   | mysql -u root -p smart_qa
+> cmd /c "mysql -u root -p < src/main/resources/db/schema.sql"
+> cmd /c "mysql -u root -p smart_qa < src/main/resources/db/data.sql"
 > ```
-> 或 `cmd /c "mysql -u root -p < src/main/resources/db/schema.sql"`。
+>
+> ⚠️ **纯 PowerShell 管道写法要同时改两处编码；只加 `-Encoding UTF8` 不够**（本机 PS 5.1 实测）：
+> `schema.sql` / `data.sql` 均**无 BOM**，PS 5.1 的 `Get-Content` 默认按系统 ANSI 读取 → 中文注释乱码；
+> 即使补 `-Encoding UTF8` 读对了，管道送进原生命令时仍按 `$OutputEncoding`（PS 5.1 默认 **us-ascii**）降级，中文变 `?`。
+> ```powershell
+> $OutputEncoding = New-Object System.Text.UTF8Encoding $false   # 必须，否则中文落库变 ?
+> Get-Content -Encoding UTF8 src/main/resources/db/schema.sql | mysql -u root -p
+> Get-Content -Encoding UTF8 src/main/resources/db/data.sql   | mysql -u root -p smart_qa
+> ```
 > **无 `mysql` CLI 的等价做法**：用 Navicat / DBeaver / JDBC 等任意客户端依次执行这两个 `.sql` 文件即可（两者均在仓库内：`src/main/resources/db/schema.sql`、`data.sql`）。
 
 ```bash
@@ -51,7 +59,9 @@ export AI_API_KEY=sk-xxxx      # 成员 A 用，B 的模块不依赖
 
 ### 3. 编译与启动
 
-> ⚠️ `mvn` 需**本机已安装 Maven 3.9+**（仓库未内置 `mvnw`/`mvnw.cmd`，故不给 wrapper 等价命令）。
+> ⚠️ `mvn` 需**本机已安装 Maven**（仓库未内置 `mvnw`/`mvnw.cmd`，故不给 wrapper 等价命令）。
+> 版本基线：**Maven 3.8+** —— 见 `dev-docs/DEV_SPECIFICATION.md` §6.1「构建工具」；
+> `pom.xml` 未声明最低版本、CI 用 runner 自带版本，故此处以团队规范为准。
 > **等价路径**：① 安装 Maven 并把 `bin` 加入 `PATH`；或 ② 用 IDE 的 Maven 面板执行同名 goal；
 > 或 ③ 直接跑仓库内脚本 `backend/run-local.ps1`（= `mvn spring-boot:run` 且加载 `backend/.env`，以 `local` profile 启动）。
 
