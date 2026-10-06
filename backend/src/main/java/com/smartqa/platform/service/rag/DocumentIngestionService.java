@@ -320,7 +320,12 @@ public class DocumentIngestionService {
             metadata.put("courseId", String.valueOf(courseId));
             metadata.put("docId", String.valueOf(docId));
             metadata.put("fileName", fileName);
-            metadata.put("chunkIndex", i);
+            // 【Issue #82】chunkIndex 必须以字符串写入，与上面 courseId / docId 保持一致。
+        // 实测：以 int 写入时，经 Chroma 的 JSON 序列化 + Gson 反序列化往返后，
+        // 取回来的是 java.lang.String 且内容为 "3.0"，导致读取侧 parseInt 失败、
+        // 教师端引用详情显示成「第 段」。InMemory 不做 JSON 往返，故测不出该差异。
+        // 读取侧（SseStreamService.parseIntOrNull）同时做了兼容，以覆盖已入库的历史数据。
+        metadata.put("chunkIndex", String.valueOf(i));
         }
 
         List<Embedding> embeddings = embeddingModel.embedAll(segments).content();
