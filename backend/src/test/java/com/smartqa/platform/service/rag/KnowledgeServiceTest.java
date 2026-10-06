@@ -3,8 +3,14 @@ package com.smartqa.platform.service.rag;
 import com.smartqa.platform.config.RagConfigProperties;
 import com.smartqa.platform.dto.KnowledgeGenerateDTO;
 import com.smartqa.platform.vo.KnowledgeGenerateVO;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.chat.ChatLanguageModel;
+import dev.langchain4j.model.output.FinishReason;
+import dev.langchain4j.model.output.Response;
+import dev.langchain4j.model.output.TokenUsage;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.model.embedding.onnx.bgesmallzhq.BgeSmallZhQuantizedEmbeddingModel;
 import dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore;
@@ -14,11 +20,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -70,7 +78,8 @@ class KnowledgeServiceTest {
                 .ingestText(OS_DOC, "操作系统-内存管理.md", 1L, 101L);
 
         chatModel = mock(ChatLanguageModel.class);
-        when(chatModel.generate(anyString())).thenReturn(MOCK_MARKDOWN);
+        // 【#83】实现改走 generate(List<ChatMessage>) 以取回 finishReason/usage，stub 随之改为返回 Response。
+        when(chatModel.generate(anyList())).thenReturn(Response.from(AiMessage.from(MOCK_MARKDOWN)));
         knowledgeService = new KnowledgeService(chatModel, embeddingModel, store, ragProps);
     }
 
@@ -89,9 +98,13 @@ class KnowledgeServiceTest {
         assertEquals(MOCK_MARKDOWN, vo.getContent(), "content 应透传模型输出的结构化精解");
 
         // —— Prompt 纪律断言（捕获实际发给大模型的 prompt）——
-        ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
+        // ArgumentCaptor.captor() 而非 forClass(List.class)：后者签名为
+// <U, S extends U> forClass(Class<S>)，传 raw List.class 推不出 U=List<ChatMessage>（编译失败）。
+ArgumentCaptor<List<ChatMessage>> promptCaptor = ArgumentCaptor.captor();
         verify(chatModel).generate(promptCaptor.capture());
-        String prompt = promptCaptor.getValue();
+        // 沿用本项目既有手法：断言"真正传给 generate() 的 UserMessage 文本"，而非反射读私有常量——
+        // 这样改 Prompt 拼装逻辑也能被发现。
+        String prompt = ((UserMessage) promptCaptor.getValue().get(0)).singleText();
         assertTrue(prompt.contains("虚拟内存与页面置换算法"), "Prompt 必须包含知识点名称");
         assertTrue(prompt.contains("核心概念定义与原理") && prompt.contains("难点深度辨析"),
                 "Prompt 必须要求两章结构");
@@ -113,9 +126,11 @@ class KnowledgeServiceTest {
 
         knowledgeService.generate(dto);
 
-        ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
+        // ArgumentCaptor.captor() 而非 forClass(List.class)：后者签名为
+// <U, S extends U> forClass(Class<S>)，传 raw List.class 推不出 U=List<ChatMessage>（编译失败）。
+ArgumentCaptor<List<ChatMessage>> promptCaptor = ArgumentCaptor.captor();
         verify(chatModel).generate(promptCaptor.capture());
-        String prompt = promptCaptor.getValue();
+        String prompt = ((UserMessage) promptCaptor.getValue().get(0)).singleText();
         assertFalse(prompt.contains("虚拟内存是计算机系统内存管理"),
                 "课程2检索不得召回课程1课件（courseId 过滤失效将在此暴露）");
         assertTrue(prompt.contains("暂无直接相关的课件片段"), "无命中时应降级为无参考资料提示");
@@ -135,12 +150,49 @@ class KnowledgeServiceTest {
     @Test
     @DisplayName("【L2】大模型返回空内容：抛 BusinessException 而非透传 content:null")
     void emptyModelOutputThrows() {
-        when(chatModel.generate(anyString())).thenReturn("   ");
+        when(chatModel.generate(anyList())).thenReturn(Response.from(AiMessage.from("   ")));
         KnowledgeGenerateDTO dto = new KnowledgeGenerateDTO();
         dto.setCourseId(1L);
         dto.setKnowledgePoint("虚拟内存");
 
         assertThrows(com.smartqa.platform.common.BusinessException.class,
                 () -> knowledgeService.generate(dto));
+    }
+
+    /**
+     * 【Issue #83】核心新用例：正文为空且 finishReason=LENGTH 时，文案必须<b>区别于</b>通用
+     * 「稍后重试」——默认启用思考模式的模型会把 max-tokens 全花在 reasoning 上、正文零字符，
+     * 此时"请稍后重试"是无效建议。
+     *
+     * <p>断言的是"区分性"本身：LENGTH 走推理占满文案，STOP/未知走通用文案，两者不得同文。</p>
+     */
+    @Test
+    @DisplayName("【#83】思考占满致空正文：文案须给出可行动原因，区别于通用重试")
+    void lengthFinishReasonGivesActionableMessage() {
+        when(chatModel.generate(anyList())).thenReturn(new Response<>(
+                AiMessage.from(""), new TokenUsage(58, 1500, 1558), FinishReason.LENGTH));
+
+        KnowledgeGenerateDTO dto = new KnowledgeGenerateDTO();
+        dto.setCourseId(1L);
+        dto.setKnowledgePoint("页面置换算法");
+
+        com.smartqa.platform.common.BusinessException ex = assertThrows(
+                com.smartqa.platform.common.BusinessException.class,
+                () -> knowledgeService.generate(dto));
+
+        assertEquals(5001, ex.getCode(), "仍按既有契约返回业务码 5001");
+        assertTrue(ex.getMessage().contains("推理占满"),
+                "LENGTH 必须报「输出预算被推理占满」，实际：" + ex.getMessage());
+        assertTrue(ex.getMessage().contains("max-tokens") || ex.getMessage().contains("非思考"),
+                "文案必须给出可行动出口（调高 max-tokens 或换非思考模型），实际：" + ex.getMessage());
+
+        // 反面对照：非 LENGTH 的空正文不得误报成推理占满
+        when(chatModel.generate(anyList())).thenReturn(new Response<>(
+                AiMessage.from("  "), new TokenUsage(10, 1, 11), FinishReason.STOP));
+        com.smartqa.platform.common.BusinessException other = assertThrows(
+                com.smartqa.platform.common.BusinessException.class,
+                () -> knowledgeService.generate(dto));
+        assertFalse(other.getMessage().contains("推理占满"),
+                "非 LENGTH 的空正文不应套用推理占满文案，实际：" + other.getMessage());
     }
 }
