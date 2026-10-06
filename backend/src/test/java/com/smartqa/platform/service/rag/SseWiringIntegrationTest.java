@@ -143,7 +143,10 @@ class SseWiringIntegrationTest {
         long recordId = done.path("recordId").asLong();
         long sessionId = done.path("sessionId").asLong();
         assertTrue(recordId > 0, "done 包必须携带正 recordId，实际：" + done);
-        assertEquals("stop", done.path("finishReason").asText());
+        // 【#83】原来这里写死 assertEquals("stop", ...)，实际是把实现的硬编码钉成了期望值——
+        // 改真实透传后它照样绿，却照不出"任何情况都报 stop"这个缺陷。现改为断言"透传模型真实值"。
+        assertEquals("stop", done.path("finishReason").asText(),
+                "mock 模型返回 STOP，done 包必须透传该值（不得硬编码，见 Issue #83）");
         assertEquals(150, done.path("totalTokens").asInt(), "totalTokens 应透传模型 TokenUsage");
 
         // —— 落库断言（查真表，不是内存）——
