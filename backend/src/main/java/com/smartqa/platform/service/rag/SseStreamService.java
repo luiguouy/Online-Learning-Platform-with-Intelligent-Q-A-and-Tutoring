@@ -231,10 +231,32 @@ public class SseStreamService {
                     int totalTokens = (usage != null && usage.totalTokenCount() != null)
                             ? usage.totalTokenCount()
                             : 0;
+
+                    // 【Issue #83】finishReason 必须透传模型真实值，不能再硬编码 "stop"。
+                    // 旧写法让「思考吃满 max-tokens、正文一个字没推」也上报 stop + 一笔可观的
+                    // totalTokens，看起来像正常答完并花了 1500 token —— 把故障伪装成成功，
+                    // 比抛错更难排查。
+                    String realFinishReason = response.finishReason() == null
+                            ? "stop" : response.finishReason().name().toLowerCase();
+
+                    // 【Issue #83 流式侧】一个 delta 都没收到即空正文：走既有 error 事件通道下发
+                    // 区分性原因（不再静默发 done）。记录仍保留在上一步落库里，提问不丢。
+                    if (answerBuilder.length() == 0) {
+                        log.error("[#83] 流式全程未产出任何 delta，sessionId={}, finishReason={}, totalTokens={}",
+                                actualSessionId, realFinishReason, totalTokens);
+                        sendErrorQuietly(emitter, ERROR_CODE_LLM,
+                                "模型本次未产出回答内容"
+                                        + ("length".equals(realFinishReason)
+                                                ? "（输出预算被推理占满），请重试；若持续如此需调高 rag.llm.max-tokens 或改用非思考模式模型"
+                                                : "，请稍后重试"));
+                        emitter.complete();
+                        return;
+                    }
+
                     Map<String, Object> donePayload = Map.of(
                             "recordId", recordId,
                             "sessionId", actualSessionId,
-                            "finishReason", "stop",
+                            "finishReason", realFinishReason,
                             "totalTokens", totalTokens);
                     sendJsonEvent(emitter, clientGone, "done", donePayload);
                     emitter.complete();
