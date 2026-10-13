@@ -99,8 +99,8 @@ class KnowledgeServiceTest {
 
         // —— Prompt 纪律断言（捕获实际发给大模型的 prompt）——
         // ArgumentCaptor.captor() 而非 forClass(List.class)：后者签名为
-// <U, S extends U> forClass(Class<S>)，传 raw List.class 推不出 U=List<ChatMessage>（编译失败）。
-ArgumentCaptor<List<ChatMessage>> promptCaptor = ArgumentCaptor.captor();
+        // <U, S extends U> forClass(Class<S>)，传 raw List.class 推不出 U=List<ChatMessage>（编译失败）。
+        ArgumentCaptor<List<ChatMessage>> promptCaptor = ArgumentCaptor.captor();
         verify(chatModel).generate(promptCaptor.capture());
         // 沿用本项目既有手法：断言"真正传给 generate() 的 UserMessage 文本"，而非反射读私有常量——
         // 这样改 Prompt 拼装逻辑也能被发现。
@@ -127,8 +127,8 @@ ArgumentCaptor<List<ChatMessage>> promptCaptor = ArgumentCaptor.captor();
         knowledgeService.generate(dto);
 
         // ArgumentCaptor.captor() 而非 forClass(List.class)：后者签名为
-// <U, S extends U> forClass(Class<S>)，传 raw List.class 推不出 U=List<ChatMessage>（编译失败）。
-ArgumentCaptor<List<ChatMessage>> promptCaptor = ArgumentCaptor.captor();
+        // <U, S extends U> forClass(Class<S>)，传 raw List.class 推不出 U=List<ChatMessage>（编译失败）。
+        ArgumentCaptor<List<ChatMessage>> promptCaptor = ArgumentCaptor.captor();
         verify(chatModel).generate(promptCaptor.capture());
         String prompt = ((UserMessage) promptCaptor.getValue().get(0)).singleText();
         assertFalse(prompt.contains("虚拟内存是计算机系统内存管理"),
