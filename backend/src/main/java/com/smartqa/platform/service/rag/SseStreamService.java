@@ -308,25 +308,86 @@ public class SseStreamService {
         return text.substring(0, SNIPPET_MAX_CHARS) + "...";
     }
 
-    private static Long parseLongOrNull(Object value) {
-        if (value == null) {
+    /**
+     * 解析 metadata 里的 Long 型字段（docId / courseId）。
+     *
+     * <p>【Issue #82】不能只写 {@code Long.parseLong(String.valueOf(v))}，理由同
+     * {@link #parseIntOrNull(Object)}：经 Chroma 往返后数值型 metadata 会变成
+     * <b>带小数点的字符串</b>，直接 parse 必抛并静默丢值。</p>
+     */
+    static Long parseLongOrNull(Object value) {
+        String digits = toIntegerDigitsOrNull(value);
+        if (digits == null) {
+            warnUnparsableMetadata("Long", value);
             return null;
         }
         try {
-            return Long.parseLong(String.valueOf(value));
+            return Long.parseLong(digits);
         } catch (NumberFormatException e) {
+            warnUnparsableMetadata("Long", value);
             return null;
         }
     }
 
-    private static Integer parseIntOrNull(Object value) {
-        if (value == null) {
+    /**
+     * 解析 metadata 里的 Integer 型字段（chunkIndex）。
+     *
+     * <p><b>【Issue #82 根因，已运行时实测】</b>写入侧 {@code metadata.put("chunkIndex", i)}
+     * 存的是 int，但经 Chroma（JSON 序列化 + Gson 反序列化）往返后，取回来的是
+     * <b>{@code java.lang.String}，内容为 {@code "3.0"}</b>——实测输出：
+     * {@code chunkIndex.class = java.lang.String}、{@code value = 3.0}。
+     * 于是 {@code Integer.parseInt("3.0")} 抛 NumberFormatException，旧实现<b>静默返回 null</b>，
+     * 教师端引用详情就显示成「第 段」。</p>
+     *
+     * <p><b>为什么 InMemory 下测不出来</b>：进程内 store 不做 JSON 往返，metadata 原样保留，
+     * 所以既有 6 个测试类全绿也照不出这个缺陷——它只在真实 Chroma 下暴露。
+     * 这也是 #58 审查里那条「InMemory 白送语义」教训的同一族问题。</p>
+     *
+     * <p>按 #82 的验收要求：<b>只接受合法整数</b>。小数（3.5）、NaN、非数值一律返回 null
+     * 并记 WARN，<b>不做静默截断</b>——截断会把「第 3 段」显示成「第 0 段」，比 null 更难发现。</p>
+     */
+    static Integer parseIntOrNull(Object value) {
+        String digits = toIntegerDigitsOrNull(value);
+        if (digits == null) {
+            warnUnparsableMetadata("Integer", value);
             return null;
         }
         try {
-            return Integer.parseInt(String.valueOf(value));
+            return Integer.parseInt(digits);
         } catch (NumberFormatException e) {
+            warnUnparsableMetadata("Integer", value);
             return null;
         }
+    }
+
+    /**
+     * 把 metadata 值规整为「纯整数字面量」字符串；无法确定其为整数时返回 {@code null}。
+     *
+     * <p>接受三类输入：整数字面量（{@code "3"}）、浮点形式（{@code "3.0"}，Chroma 往返产物）、
+     * {@link Number} 实例。用 {@link java.math.BigDecimal#toBigIntegerExact()} 判定：
+     * {@code 3.0 → "3"}，而 {@code 3.5} 抛 {@link ArithmeticException} → 返回 null（**不截断**）。</p>
+     */
+    private static String toIntegerDigitsOrNull(Object value) {
+        if (value == null) {
+            return null;
+        }
+        String text = String.valueOf(value).trim();
+        if (text.isEmpty()) {
+            return null;
+        }
+        if (text.matches("[-+]?\\d+")) {
+            return text;
+        }
+        try {
+            return new java.math.BigDecimal(text).toBigIntegerExact().toString();
+        } catch (NumberFormatException | ArithmeticException e) {
+            return null;
+        }
+    }
+
+    /** 解析失败必须留痕：旧实现静默吞掉，导致「教师端编号为空」在日志里毫无线索（Issue #82）。 */
+    private static void warnUnparsableMetadata(String targetType, Object value) {
+        log.warn("[#82] 引用元数据无法解析为 {}，已置 null（不静默截断）: value={}, class={}",
+                targetType, value, value == null ? "null" : value.getClass().getName());
     }
 }
