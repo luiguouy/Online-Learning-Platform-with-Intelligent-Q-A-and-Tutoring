@@ -34,10 +34,17 @@ public class RagConfigProperties {
         private String chatModel;
         /** 采样温度，控制生成随机性 */
         private Double temperature = 0.2;
-        /** 单次最大生成 Token 数 */
-        private Integer maxTokens = 1500;
-        /** 请求超时（秒） */
-        private Integer timeoutSeconds = 60;
+        /**
+         * 单次最大生成 Token 数。
+         * 【#83 选项②】1500→4000：思考模式下 reasoning 与正文共享本预算，旧值实测被吃满致空正文；
+         * 与 application.yml / templates 两处保持一致，改动须三处同改。
+         */
+        private Integer maxTokens = 4000;
+        /**
+         * 请求超时（秒）。【#83】60→85：预算抬高后生成时长上升，且必须 < 学生端知识点请求
+         * 90s 硬超时（#42）；与 yml/模板两处保持一致。
+         */
+        private Integer timeoutSeconds = 85;
 
         // Getter / Setter
         public String getBaseUrl() { return baseUrl; }

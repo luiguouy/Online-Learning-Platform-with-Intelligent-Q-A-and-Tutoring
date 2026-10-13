@@ -64,8 +64,10 @@ rag:
     api-key: ${AI_API_KEY:sk-placeholder}   # ← 用环境变量注入，禁止写死真实 Key
     chat-model: deepseek-chat               # 或 qwen-plus；字段名固定，禁止写作 model-name
     temperature: 0.2
-    max-tokens: 1500
-    timeout-seconds: 60
+    # 【#83 选项②】与主配置三处一致（application.yml / RagConfigProperties 默认值 / 本模板）：
+    # max-tokens 4000 容纳思考模式 reasoning 预算；timeout 85s 必须 < 学生端 90s 硬超时
+    max-tokens: 4000
+    timeout-seconds: 85
   # 向量模型说明：已采用内置 BGE-Small-ZH 本地模型 (纯本地CPU计算，零Token费用，无远程接口依赖)
   chroma:
     base-url: http://${CHROMA_HOST:localhost}:8000
