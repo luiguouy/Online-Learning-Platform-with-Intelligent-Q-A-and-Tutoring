@@ -166,8 +166,12 @@ public class DocumentIngestionService {
      * <p>【Issue #55】这里必须把「格式支持、但内容里没有文字」与「文件损坏 / 内容无法识别」
      * 分开报。上传白名单已限定 {@code pdf|docx|md|txt}，所以"格式不对"这条路径用户根本走不到；
      * 早期把两类原因合并成一句「请检查文件格式」，会把扫描件用户引向反复换格式、无法自助排查。</p>
+     *
+     * <p>【Issue #74】系统/框架依赖故障分流：
+     * 区分"文件本身的问题"与"系统级/依赖级故障"（如 NoClassDefFoundError、NoSuchMethodError、ClassNotFoundException）。
+     * 出现此类问题是服务端依赖损坏或装配故障，绝不能提示用户"文件已损坏或加密"误导用户重复尝试。</p>
      */
-    private RuntimeException translateParseError(Throwable cause, String fileName) {
+    RuntimeException translateParseError(Throwable cause, String fileName) {
         if (findInChain(cause, WriteLimitReachedException.class) != null) {
             return new RuntimeException("课件文本内容超过解析上限（"
                     + ragProps.getIngest().getMaxTextChars() + " 字符），请拆分后重新上传: " + fileName);
@@ -183,8 +187,14 @@ public class DocumentIngestionService {
             log.warn("[RAG-Ingest] 未提取到文本内容（可能是扫描件/纯图片，或文件已损坏）: {}", fileName);
             return new RuntimeException(blankTextMessage(fileName));
         }
+        // 【Issue #74】系统组件与依赖缺失类致命故障：不再推责给用户的文件损坏/加密
+        if (findInChain(cause, LinkageError.class) != null || findInChain(cause, ClassNotFoundException.class) != null) {
+            log.error("[RAG-Ingest][SYS-INGEST-DEP] 系统依赖/组件异常导致课件解析失败, fileName={}", fileName, cause);
+            return new RuntimeException("系统组件异常，暂时无法解析该文件，已将问题记录给维护人员，"
+                    + "请稍后重试或联系管理员 (SYS-INGEST-DEP): " + fileName, cause);
+        }
         log.error("[RAG-Ingest] 文件解析失败: {}", fileName, cause);
-        // 走到这里既没超限、也不是"无文本"，剩下的常见原因是文件损坏 / 加密 / 内容无法识别。
+        // 走到这里既没超限、也不是"无文本"，更不是系统组件级故障，剩下的常见原因是文件损坏 / 加密 / 内容无法识别。
         // 措辞不再暗示"格式不对"（Issue #55）：格式在上传入口已校验过。
         return new RuntimeException("课件文件解析失败：文件内容无法识别（可能已损坏或加密），"
                 + "请确认该文件能正常打开后重试: " + fileName, cause);
