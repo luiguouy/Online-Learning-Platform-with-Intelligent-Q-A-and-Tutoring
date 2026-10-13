@@ -30,6 +30,9 @@ target/
 ### VS Code ###
 .vscode/
 
+### 【#65】Chroma collection uuid 本地缓存（启动时自动生成，不入库） ###
+.chroma-cache/
+
 ### 本地私有敏感配置 ###
 application-local.yml
 application-local.properties

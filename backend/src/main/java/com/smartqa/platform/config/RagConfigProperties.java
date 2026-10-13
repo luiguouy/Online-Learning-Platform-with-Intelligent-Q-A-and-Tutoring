@@ -64,6 +64,12 @@ public class RagConfigProperties {
         private String baseUrl;
         /** 向量集合名称 */
         private String collectionName;
+        /**
+         * 【#65 迁移通道】已存在 collection 的 UUID，仅当本地 uuid 缓存缺失且服务端存在
+         * 同名 collection 时兼作手工注入（0.6.3 无法按名反查 id）；常规场景留空，
+         * 由 ChromaThinEmbeddingStore 自动创建并缓存。
+         */
+        private String collectionId;
 
         // Getter / Setter
         public String getBaseUrl() { return baseUrl; }
@@ -71,6 +77,9 @@ public class RagConfigProperties {
 
         public String getCollectionName() { return collectionName; }
         public void setCollectionName(String collectionName) { this.collectionName = collectionName; }
+
+        public String getCollectionId() { return collectionId; }
+        public void setCollectionId(String collectionId) { this.collectionId = collectionId; }
     }
 
     public static class Chunk {
