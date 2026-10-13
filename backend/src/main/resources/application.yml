@@ -86,8 +86,13 @@ rag:
     api-key: ${AI_API_KEY:sk-placeholder}
     chat-model: ${AI_CHAT_MODEL:deepseek-chat}    # 支持 deepseek-chat、qwen-plus 等
     temperature: 0.2
-    max-tokens: 1500
-    timeout-seconds: 60
+    # 【#83 选项②】1500 → 4000：思考模式下 reasoning 实测可达 ~1500 token 会吃满旧预算致正文为空；
+    # 4000 = 最坏思考量 + 精解正文(~800) + 余量。timeout 60 → 85：输出预算抬高后生成时长同步上升，
+    # 必须小于学生端知识点请求的 90s 硬超时并留缓冲（#42 H2），否则前端先断连、后端错报超时。
+    # 缓解而非根治：0.35.0 无法从代码侧关闭思考模式（见 #85 §四）；极端长思考仍可能占满，
+    # 届时文案会按 LENGTH 分支给出可行动提示。三处同改：application.yml / RagConfigProperties 默认值 / templates/application-example.yml
+    max-tokens: 4000
+    timeout-seconds: 85
   # 向量模型说明：已采用内置 BGE-Small-ZH 本地模型 (纯本地CPU计算，零Token费用，无远程接口依赖)
   chroma:
     base-url: http://${CHROMA_HOST:localhost}:8000
