@@ -92,6 +92,8 @@ rag:
   chroma:
     base-url: http://${CHROMA_HOST:localhost}:8000
     collection-name: smart_qa_course_docs
+    # 【#65 迁移通道】仅当同名 collection 已存在但本地 uuid 缓存丢失时手工注入；常规场景留空
+    collection-id: ${RAG_CHROMA_COLLECTION_ID:}
   chunk:
     size: 400
     overlap: 50
