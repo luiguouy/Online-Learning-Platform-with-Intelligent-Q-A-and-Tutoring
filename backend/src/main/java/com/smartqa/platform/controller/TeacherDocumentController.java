@@ -197,7 +197,10 @@ public class TeacherDocumentController {
         // 故降级为告警日志 + 仍返回业务成功；残留切片的人工/对账清理见 Issue #62。
         try {
             ingestionService.removeDocumentVectors(id);   // ③
-        } catch (Exception e) {
+        } catch (Throwable e) {
+            // 【Issue #74 §三】同 submitIngestion：这一步也可能抛 Error（依赖缺类 / 原生库缺失），
+            // catch (Exception) 接不到就会让本次删除以 500 收场 —— 而"删除"这一业务事实在 ② 已成立，
+            // 回 500 会让教师误以为没删掉而重复上传，正是本段注释要避免的情形。
             log.error("[#58] 删后复扫失败，可能存在残留切片需人工清理, docId={}", id, e);
         }
 
@@ -234,11 +237,14 @@ public class TeacherDocumentController {
         //   所以必须中止、回置失败并把原因告知用户。
         try {
             ingestionService.removeDocumentVectors(id);
-        } catch (Exception e) {
+        } catch (Throwable e) {
+            // 【Issue #74 §三】捕获面必须是 Throwable：清理会因依赖缺类 / 原生库缺失抛 Error，
+            // 而 catch (Exception) 漏掉它时，下面"回置 FAILED"这一步根本不会执行 —— 状态就停在
+            // PARSING（正是本段注释要防的自锁）。
             log.error("[#57] reindex 清理旧向量失败，已回置 FAILED 以便重试, docId={}", id, e);
             try {
                 docService.markFailed(id, "重建索引失败：清理旧向量未成功（向量库可能暂时不可用），请稍后重试");
-            } catch (Exception inner) {
+            } catch (Throwable inner) {
                 // 回置也失败：课件会停在 PARSING（即本方法要防的那个状态）。此时已无更好的选择，
                 // 但两个异常都必须留在日志里且带 docId，否则人工也无法定位该课件。
                 log.error("[#57] 回置 FAILED 亦失败，课件状态可能停留在 PARSING，需人工按 docId 修正, docId={}",
@@ -284,16 +290,18 @@ public class TeacherDocumentController {
                         return;
                     }
                     docService.markChunked(docId, chunks);
-                } catch (Exception e) {
+                } catch (Throwable e) {
+                    // 【Issue #74 §三】这里必须是 Throwable，不能是 Exception —— 接不到 Error 就是静默失败。
+                    // ingest() 只在 Tika 解析段借 Future.get() 把 Error 转成 Exception；其后的
+                    // embedAll / addAll（splitEmbedAndStore）没有任何包装，UnsatisfiedLinkError
+                    // （BGE/ONNX 原生库缺失）、NoClassDefFoundError（依赖缺类）会直接冒泡到这里。
+                    // 而本任务是 CompletableFuture.runAsync 提交、返回值被丢弃、无人 join()/get()，
+                    // CompletableFuture$AsyncSupply.run() 自身 catch (Throwable) 后只把异常存进结果对象
+                    // （javap 实测异常表：from 35 to 46 target 49 Class java/lang/Throwable）——
+                    // 既不打印也不传播。漏掉 Error 时课件会永久停在 PARSING：全仓无任何超时兜底，
+                    // reindex 的状态 CAS 又只放行 CHUNKED/FAILED，该课件从此无法重建，只能重传。
                     log.error("课件切块向量化失败, docId={}, fileName={}", docId, fileName, e);
-                    if (docService.getById(docId) == null) {
-                        // 课件已被删除：既不回写 FAILED（updateById 本就会影响 0 行、徒留误报日志），
-                        // 也顺手清掉可能已部分写入的切片，避免留下幽灵参考资料。
-                        ingestionService.removeDocumentVectors(docId);
-                        log.warn("[#58] 课件在解析期间被删除，跳过失败状态回写并清理残留切片, docId={}", docId);
-                    } else {
-                        docService.markFailed(docId, e.getMessage());
-                    }
+                    markFailedSafely(docId, e);
                 }
             }, asyncExecutor);
         } catch (RejectedExecutionException e) {
@@ -301,6 +309,38 @@ public class TeacherDocumentController {
             // 否则课件会永远卡在 PARSING（状态回写由异步任务负责，而任务根本没提交成功）。
             log.error("切块线程池饱和，拒绝入库 docId={}, fileName={}", docId, fileName, e);
             docService.markFailed(docId, "系统繁忙，切块任务队列已满，请稍后重新上传或重建索引");
+        }
+    }
+
+    /**
+     * 失败状态回写（带二次兜底）。
+     *
+     * <p>调用方已处在"捕获 {@code Throwable}"的兜底分支里，所以回写动作自身
+     * （查库 / 清向量 / 更新状态）绝不能再让异常逸出 —— 逸出即回到"无人 join 的
+     * {@code CompletableFuture} 静默吞异常"的老路，课件依旧停在 {@code PARSING}。</p>
+     *
+     * <p>文案分档：{@code Error}（框架 / 依赖级故障）给"系统组件异常"这一档，
+     * 不把类名技术串直接展示给教师；普通 {@code Exception} 原样沿用 {@code ingest()}
+     * 抛出的面向用户文案（#55 口径：三类上限与"无文字层"的具体原因都在里面，不可覆盖）。</p>
+     */
+    private void markFailedSafely(Long docId, Throwable cause) {
+        String reason = (cause instanceof Error)
+                ? "系统组件异常，切块向量化未能完成（SYS-INGEST-DEP），请稍后重试或联系管理员"
+                : cause.getMessage();
+        try {
+            if (docService.getById(docId) == null) {
+                // 课件已被删除：既不回写 FAILED（updateById 本就会影响 0 行、徒留误报日志），
+                // 也顺手清掉可能已部分写入的切片，避免留下幽灵参考资料。
+                ingestionService.removeDocumentVectors(docId);
+                log.warn("[#58] 课件在解析期间被删除，跳过失败状态回写并清理残留切片, docId={}", docId);
+            } else {
+                docService.markFailed(docId, reason);
+            }
+        } catch (Throwable t) {
+            // 极端情况（如向量库连 GET 都抛 Error）：状态可能仍停在 PARSING，
+            // 但日志里必须留下可按 docId 人工定位的线索。
+            log.error("[#74] 失败状态回写未成功，课件可能仍停留在 PARSING，需人工按 docId 修正, docId={}",
+                    docId, t);
         }
     }
 
