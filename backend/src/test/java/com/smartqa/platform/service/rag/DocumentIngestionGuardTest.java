@@ -163,4 +163,61 @@ class DocumentIngestionGuardTest {
         }
         fail("未能构造出命中兜底分支的输入 —— 说明兜底文案没有被任何用例覆盖");
     }
+
+    // ── Issue #74：区分系统组件故障与文件损坏，不误导用户 ─────────────────────────
+    @Test
+    @DisplayName("#74 系统依赖故障：LinkageError / ClassNotFoundException 应提示系统组件异常与短码，不得推责给文件损坏")
+    void systemDependencyErrorDoesNotBlameFileCorruption() {
+        DocumentIngestionService svc = newService(new RagConfigProperties());
+
+        // 覆盖典型的类加载与链接级致命异常
+        List<Throwable> fatalCauses = List.of(
+                new NoClassDefFoundError("org/apache/commons/io/input/ChecksumInputStream"),
+                new NoSuchMethodError("org.apache.tika.parser.Parser.parse()"),
+                new ClassNotFoundException("org.apache.commons.io.input.ChecksumInputStream"),
+                new LinkageError("generic linkage failure"),
+                // 深度嵌套在 RuntimeException 包装链中的场景
+                new RuntimeException("outer", new IllegalStateException("mid",
+                        new NoClassDefFoundError("nested.MissingClass")))
+        );
+
+        for (Throwable cause : fatalCauses) {
+            RuntimeException ex = svc.translateParseError(cause, "微积分第一章.pdf");
+
+            assertTrue(ex.getMessage().contains("系统组件异常"),
+                    "应当提示『系统组件异常』，实际：" + ex.getMessage());
+            assertTrue(ex.getMessage().contains("SYS-INGEST-DEP"),
+                    "文案必须包含排查短码『SYS-INGEST-DEP』，实际：" + ex.getMessage());
+            assertTrue(ex.getMessage().contains("微积分第一章.pdf"),
+                    "文案应保留原始文件名便于对照，实际：" + ex.getMessage());
+            assertFalse(ex.getMessage().contains("损坏或加密"),
+                    "系统级故障不得诬称文件损坏或加密误导用户，实际：" + ex.getMessage());
+            assertFalse(ex.getMessage().contains("格式"),
+                    "系统级故障不得提及格式问题，实际：" + ex.getMessage());
+        }
+    }
+
+    @Test
+    @DisplayName("#74 端到端 ingest：Tika 解析遭遇类链接错误时端到端返回系统故障短码")
+    void ingestWithLinkageErrorTranslatesToSysError() {
+        DocumentIngestionService svc = newService(new RagConfigProperties());
+
+        // 模拟流读取或底层处理时抛出 NoClassDefFoundError
+        InputStream faultyStream = new InputStream() {
+            @Override
+            public int read() {
+                throw new NoClassDefFoundError("org/apache/commons/io/input/ChecksumInputStream");
+            }
+        };
+
+        RuntimeException ex = assertThrows(RuntimeException.class,
+                () -> svc.ingest(faultyStream, "计算机组成原理.pdf", 1L, 101L, 1L));
+
+        assertTrue(ex.getMessage().contains("SYS-INGEST-DEP"),
+                "端到端 ingest 必须将依赖缺类翻译为 SYS-INGEST-DEP，实际：" + ex.getMessage());
+        assertTrue(ex.getMessage().contains("系统组件异常"),
+                "端到端 ingest 必须包含系统组件异常说明，实际：" + ex.getMessage());
+        assertFalse(ex.getMessage().contains("损坏或加密"),
+                "端到端 ingest 不得归咎于文件损坏，实际：" + ex.getMessage());
+    }
 }
