@@ -1,132 +1,231 @@
-# AI 驱动的在线学习智能答疑辅导平台（RAG 课程知识库）
+# AI 驱动的在线学习智能答疑辅导平台 (SmartQA Platform)
 
-> 本仓库采用**开发文档与项目代码一体化单体仓 (Monorepo)** 统一管理：
-> - 📂 **`dev-docs/`**：团队开发文档专用专区（包含全员规范、接口契约、表结构、三周排期及组员开发指南）。
-> - 📂 **`backend/`**：单体 Spring Boot 3.3.5 后端工程源码（遵循分层架构与单一工程原则）。
-> - ⚙️ **`.github/`**：CI 持续集成门禁（密钥扫描 + 后端构建）、PR 模板与 Issue 规范（在仓库根目录直接对 `backend/` 生效）。
+<p align="center">
+  <img src="https://img.shields.io/badge/Spring%20Boot-3.3.5-brightgreen.svg" alt="Spring Boot">
+  <img src="https://img.shields.io/badge/Java-21-blue.svg" alt="Java 21">
+  <img src="https://img.shields.io/badge/Vue-3.4+-emerald.svg" alt="Vue 3">
+  <img src="https://img.shields.io/badge/TypeScript-5.x-blue.svg" alt="TypeScript">
+  <img src="https://img.shields.io/badge/RAG-Hybrid%20%2B%20RRF-orange.svg" alt="RAG">
+  <img src="https://img.shields.io/badge/License-MIT-purple.svg" alt="License">
+</p>
 
-## 一、开发文档清单与阅读顺序（`dev-docs/` 专区）
-
-| 顺序 | 文件路径 | 给谁用 | 作用 |
-| :--- | :--- | :--- | :--- |
-| 0 | [`dev-docs/GLOSSARY.md`](dev-docs/GLOSSARY.md) | **零基础先看** | 术语表（人话版）、零经验 FAQ、常见报错速查表 |
-| 1 | [`dev-docs/THREE_WEEK_PLAN.md`](dev-docs/THREE_WEEK_PLAN.md) | **全员先读** | **工期唯一权威**：三周冲刺计划、每人每周任务与验收标准、裁剪顺序 |
-| 2 | [`dev-docs/TEAM_WORK_DIVISION.md`](dev-docs/TEAM_WORK_DIVISION.md) | 全员先读 | 角色分工（第一章）、WBS 任务清单（第二章）、**接口矩阵（第三章）** |
-| 3 | [`dev-docs/DEV_SPECIFICATION.md`](dev-docs/DEV_SPECIFICATION.md) | 全员必读 | Git 规范、代码规范、**SSE 接口唯一契约**、环境基线 |
-| 4 | [`dev-docs/COLLABORATION_WORKFLOW.md`](dev-docs/COLLABORATION_WORKFLOW.md) | 全员必读 | **决策权 RACI、分支保护、PR/Review 门禁、CI、完成的定义（DoD）** |
-| 5 | [`dev-docs/AGENT_INSTRUCTIONS.md`](dev-docs/AGENT_INSTRUCTIONS.md) | 喂给 AI 的第一份文件 | Agent 禁令、application.yml 完整模板、线程池规范、冒烟验收清单 |
-| 6 | `dev-docs/MEMBER_X_DEV_GUIDE.md` | 各自认领 | 成员 A（RAG/SSE）、B（业务/DB）、C（学生前端）、D（教师前端） |
-| 7 | [`dev-docs/COLLAB_AGENT_PROTOCOL.md`](dev-docs/COLLAB_AGENT_PROTOCOL.md) | **喂给 AI 的协作流程** | 组员 Agent 自动执行：认领 Issue → 开工移卡片 → 每日站会发评论 → 提 PR → 契约变更拦截 |
-| 8 | [`dev-docs/组员发指令速查卡.md`](dev-docs/组员发指令速查卡.md) | 复制即用 | 组员给 AI 发指令速查卡（含 A/B/C/D 专属第一条指令） |
-| 9 | [`dev-docs/群规与站会速查.md`](dev-docs/群规与站会速查.md) | 组长贴群公告 | 微信群使用规则（只转发链接+约会议）+ 看板操作口诀 |
-
-### 配套工程资产
-
-| 路径 | 作用 |
-| :--- | :--- |
-| `.github/PULL_REQUEST_TEMPLATE.md` | PR 四段式描述 + DoD 自查 + Reviewer 检查表，自动填充 |
-| `.github/ISSUE_TEMPLATE/task.yml` | 任务 Issue 模板（成员/周次/验收标准/依赖） |
-| `.github/ISSUE_TEMPLATE/bug.yml` | 缺陷模板（含 P0~P3 定级与根因分析栏） |
-| `.github/workflows/ci.yml` | CI 门禁：密钥扫描 → 后端 `mvn compile` → 前端类型与构建 |
-| `dev-docs/templates/application-example.yml` | 脱敏配置模板，复制为 `backend/src/main/resources/application-local.yml` 使用 |
-
-> 以上工程资产在仓库根目录直接生效，提交 `backend/` 下的 Java 源码时 CI 流水线会自动触发校验。
-
-**冲突裁决表（唯一标准，Agent 与人都按此执行）**：
-
-| 冲突类型 | 以谁为准 |
-| :--- | :--- |
-| 接口路径 / 字段 / SSE 事件格式 | `DEV_SPECIFICATION.md` 第四章（4.2） |
-| 工期、功能范围、裁剪顺序 | `THREE_WEEK_PLAN.md` |
-| 协作流程（看板、站会、PR、Review、关单） | `COLLABORATION_WORKFLOW.md` + `COLLAB_AGENT_PROTOCOL.md`（后者是前者的 Agent 执行细则） |
-| 依赖版本 / 配置键 / 包结构红线 | `AGENT_INSTRUCTIONS.md` |
-| 某成员模块的实现细节 | 该成员的 `MEMBER_X_DEV_GUIDE.md`（但不得违反上述四行） |
-| 同一文件内部自相矛盾、或表上找不到归属 | **停下问组长，不要自行发明**；组长在对应 Issue 评论裁决并留痕 |
-
-## 二、组员操作指南
-
-### 开工前先背：三条保命纪律
-
-看不懂技术细节没关系，这三条**照做就行**。文档管"怎么写对"，这三条管"写错了能当场发现"；内容冲突时按上面"冲突裁决表"判。
-
-**纪律 1：第 1~2 天只做技术验证，不写业务代码。**
-- 成员 A 必须先跑 `THREE_WEEK_PLAN.md` 3.2 节的 A1.1（Chroma 验证）和 A1.2（大模型连通验证），各半天。
-- **验证不通过，当天在群里说，换备用方案。** 不要抱着"也许写着写着就好了"的心态往下做——底层不通，上面写得越多浪费越多。
-- 其他三人（B/C/D）这两天做第 0 周准备清单（本文档第五节），不要抢跑写业务功能。
-
-**纪律 2：AI 每次写完代码，必须看到验证命令跑过才算完成。**
-AI 说"完成了"**不算数**，命令跑过才算数。每生成一个模块后：
-
-| 谁 | 跑什么（在工程目录下） | 看什么 |
-| :--- | :--- | :--- |
-| 后端（A、B） | `mvn clean compile` | 最后出现 `BUILD SUCCESS` |
-| 前端（C、D） | `npx vue-tsc --noEmit` 然后再 `npm run build` | 无任何红色报错 |
-
-- 报错就把报错原文贴给 AI 让它修，修完再跑一次，直到通过。
-- **AI 连续 3 次修不好同一个报错，发到群里问组长，不要自己瞎改**——你随手改的一行，可能和别人的代码对不上。
-- ⚠️ 前端特别注意：`npm run build` **查不出**"模板里调用了不存在的方法"这类错误，`vue-tsc` 才能查出来。两条都要跑，顺序是先 `vue-tsc` 后 `build`。
-
-**纪律 3：照模板给 AI 派活，它提的"加功能"一律拒绝。**
-- 每个任务的第一条消息，用下面"第 2 步"的模板。
-- AI 主动问"要不要顺便加个 XX 功能"时，**一律回答"不需要，只做文档里写的"**（功能范围见本文档铁律第 1 条）。AI 多加的每一个功能，都可能和另一个组员的代码打架。
+<p align="center">
+  <strong>基于混合检索增强生成 (Hybrid RAG) 与跨特征精重排的现代化高校课程智能答疑与教学辅导系统</strong>
+</p>
 
 ---
 
-### 第 1 步：拿到自己的任务
-确认你对应成员 A / B / C / D（见 `TEAM_WORK_DIVISION.md` 第一章表格）。
-**本周任务已拆成 GitHub Issue 并指派到人**：看板 [https://github.com/users/luiguouy/projects/3](https://github.com/users/luiguouy/projects/3)，或让自己的 Agent 跑 `gh issue list --assignee @me --state open`（前提：本人先 `gh auth login` 一次）。Issue 正文里的"验收标准"就是你要做到的程度。
+## 📖 项目简介
 
-### 第 2 步：把文档喂给你的 AI Agent
-> 看不懂文档里的术语？先读 `GLOSSARY.md`，里面有"人话版"术语表和报错速查表。
+**SmartQA Platform** 是一款面向高校课程与专业考研培训的 **AI 智能答疑与辅助教学平台**。平台针对传统大模型问答容易出现的“幻觉严重、专有名词遗漏、缺乏精准课件出处依据”等痛点，自研了一套**工业级混合 RAG 架构（Dense 向量 + BM25 词频 + RRF 融合 + 跨特征重排序 + 上下文压缩）**。
 
-打开你的 AI 编程工具，在新项目的**第一条消息**里按此模板发送：
+平台为高校师生提供闭环式智能教学体验：
+- **学生端**：提供沉浸式课程智能问答、实时 SSE 打字机流式推理、精准课件出处定位（支持切块详情与关联度展示）、智能知识点解析与点赞反馈；
+- **教师端**：提供课程全生命周期管理、教学资料（PDF/Markdown/OCR）切块可视化、全校师生问答记录多维溯源与质量监控。
 
-```text
-请先完整阅读我提供的 4 份文档，严格遵照执行，不允许自由发挥：
-1. AGENT_INSTRUCTIONS.md（全局禁令与配置模板，最高优先级）
-2. DEV_SPECIFICATION.md（编码与接口规范）
-3. MEMBER_<你的字母>_DEV_GUIDE.md（你负责模块的详细设计）
-4. COLLAB_AGENT_PROTOCOL.md（协作流程：开工移卡片、每日站会发 Issue、提 PR 的自动动作）
+---
 
-我现在的任务是：<从指派给我的 Issue 里抄任务编号与目标>。
-先列出你将创建/修改的文件清单让我确认，再开始写代码。
-每次写完后，对照 AGENT_INSTRUCTIONS.md 第四章的 7 项冒烟清单自查并报告结果（第 1 周只需 1~3 项；4~7 项从第 2 周登录与 SSE 打通后开始适用）。
+## 🌟 核心特色与技术亮点
+
+### 1. 工业级多层递进强化 RAG 架构
+- **大纲面包屑切块 (Breadcrumb Chunking)**：文档切块自动注入层级导航路径（如 `[章节导航: 操作系统 > 2.4 死锁 > 银行家算法]`），从根本上消除局部文本切片脱离全局主题的语义断层问题。
+- **双路混合召回 (Hybrid Retrieval)**：
+  - **Dense（向量检索）**：基于 `BAAI/bge-small-zh-v1.5`（512 维稠密向量），捕捉语义泛化与同义发散能力；
+  - **Sparse（BM25 倒排检索）**：基于内存倒排分词索引，对考研与专业术语（如 `TLB`、`inode`、`FCB`、`SCAN`、`PV原语`）实施精准匹配，规避向量“语义漂移”。
+  - **RRF 倒数排名融合**：通过动态平滑倒数排名公式融合双路评分，消除单一检索路径的死角。
+- **跨特征融合精重排序 (Lexical-Semantic Reranker)**：
+  $$\text{Score} = 0.40 \times \text{DenseScore} + 0.25 \times \text{BM25Norm} + 0.20 \times \text{BreadcrumbHit} + 0.15 \times \text{KeywordCoverage}$$
+  大幅拉升具有核心专有名词与大纲命中的关键切块，确保高价值段落排在最前列。
+- **自适应上下文压缩 (Context Compressor)**：自动滤除 OCR 扫描噪点与冗余页眉，极大提高送入大模型的 Prompt 信噪比。
+- **高频问题语义缓存 (Semantic Cache)**：对余弦相似度 $\ge 0.95$ 的相似提问直接毫秒级返回，显著节约算力成本。
+
+### 2. 实测高水准 RAG 量化基准 (Benchmark)
+在《王道考研计算机操作系统》（1,272 个切块）等真实规模的专业知识库真实压测下，系统各项核心指标表现优异：
+
+| 评估指标 | 实测表现 | 行业参考平均 | 指标说明 |
+| :--- | :---: | :---: | :--- |
+| **Top-1 命中率 (Hit@1)** | **90.0%** | 65% ~ 75% | 首选切块即最核心考点出处答案 |
+| **Top-3 命中率 (Hit@3)** | **100.0%** | 80% ~ 88% | 前 3 个切块对标准知识点的覆盖率 |
+| **Top-5 命中率 (Hit@5)** | **100.0%** | 85% ~ 92% | 前 5 个候选切块实现 100% 完整召回 |
+| **平均倒数排名 (MRR)** | **0.950** | 0.70 ~ 0.82 | 衡量相关文档排序靠前程度（满分 1.000） |
+| **首包端到端延迟** | **63.7 ms** | 150 ~ 300 ms | 包含向量搜索、BM25倒排、重排序的整体耗时 |
+
+### 3. 端到端工程化闭环
+- **统一流式契约 (SSE Protocol)**：标准规范定义 `references`（出处首包）、`message`（逐字流）、`done`（元数据收尾）、`error`（异常拦截）四阶事件通道。
+- **现代工程架构**：高聚合单体 Spring Boot 3.3.5 + Java 21 + Vue 3 组合，双端前端均通过 `vue-tsc` 严格类型校验，界面采用沉浸式学院蓝高质感设计系统。
+- **安全与防护**：内置 Sa-Token RBAC 细粒度鉴权、Redis 令牌桶接口动态限流、敏感参数安全注入。
+
+---
+
+## 🏗️ 系统总体架构
+
+```mermaid
+flowchart TD
+    subgraph ClientLayer ["用户交互层 (Clients)"]
+        S_FE["🎓 学生端 (Vue 3 + TS + Tailwind)"]
+        T_FE["👨‍🏫 教师端 (Vue 3 + TS + Element Plus)"]
+    end
+
+    subgraph GatewayLayer ["控制与安全层 (Spring Boot 3.3.5)"]
+        AUTH["Sa-Token 权限鉴权 (RBAC)"]
+        RATELIMIT["Redis 令牌桶高频限流"]
+        ROUTER["RESTful API / SSE Stream 控制器"]
+    end
+
+    subgraph RAGCore ["智能 RAG 核心处理引擎"]
+        CACHE["⚡ 语义缓存 (Semantic Cache)"]
+        CHUNKER["📑 层级大纲切块器 (Breadcrumb Injector)"]
+        
+        subgraph HybridSearch ["双路混合检索与重排序"]
+            DENSE["稠密向量检索 (BGE-Small-ZH)"]
+            SPARSE["稀疏词频检索 (BM25 内存倒排)"]
+            RRF["RRF 倒数排名融合引擎"]
+            RERANK["🎯 跨特征融合重排序 (Multi-Factor Reranker)"]
+            COMPRESS["🧹 上下文去噪与动态压缩"]
+        end
+        
+        LLM["🤖 大语言模型 (通义千问 / DeepSeek / 本地大模型)"]
+    end
+
+    subgraph StorageLayer ["数据与持久层"]
+        MYSQL[("MySQL 8.0 业务数据库")]
+        VECTOR_DB[("Chroma / LangChain4j 向量库")]
+        REDIS[("Redis 缓存 & 令牌桶")]
+        LOCAL_DOCS["课件与知识库存储 (PDF/MD/OCR)"]
+    end
+
+    S_FE -->|HTTP / SSE| ROUTER
+    T_FE -->|HTTP| ROUTER
+    ROUTER --> AUTH --> RATELIMIT
+
+    ROUTER --> CACHE
+    CACHE -.->|未命中| HybridSearch
+    
+    T_FE -->|上传课件| CHUNKER
+    CHUNKER --> VECTOR_DB
+    CHUNKER --> SPARSE
+
+    HybridSearch --> DENSE --> VECTOR_DB
+    HybridSearch --> SPARSE
+    DENSE & SPARSE --> RRF --> RERANK --> COMPRESS --> LLM
+    LLM -->|SSE Stream 流式推送| S_FE
+
+    ROUTER --> MYSQL
+    AUTH --> REDIS
 ```
 
-把四份文档的文件拖进对话（或在 Claude Code 里 `@文件名` 引用）。
+---
 
-### 第 3 步：小步快跑，每一步都要能编译
-- 不要一次让 Agent "把整个后端写完"。按成员指南的章节拆小任务（如"只实现登录接口"）。
-- 每完成一个小任务，按上面**纪律 2** 跑验证命令（后端 `mvn clean compile`；前端先 `npx vue-tsc --noEmit` 再 `npm run build`），**报错就继续让它修，不要跳过**。
-- Agent 说"完成了"不等于完成——要求它贴出编译/运行成功的输出。
+## 💻 技术栈
 
-### 第 4 步：提交代码
-按 `DEV_SPECIFICATION.md` 第一章执行：从 `dev` 分支拉 `feature/<你的字母>-<短名>` 分支（强制格式见 `COLLABORATION_WORKFLOW.md` 2.1），提交信息用 `feat(scope): 描述` 格式，发起 Pull Request 合并到 `dev`。**禁止把任何 API Key 写进代码或提交**（Key 放 `application-local.yml` 或环境变量，该文件已被 .gitignore 忽略）。
+| 层次 | 核心技术 / 框架 | 说明 |
+| :--- | :--- | :--- |
+| **后端架构** | Spring Boot `3.3.5`, Java `21` | 现代长期支持版本，分层架构 |
+| **安全与认证** | Sa-Token `1.39.0` | 轻量化、高性能权限验证框架 |
+| **数据访问** | MyBatis-Plus `3.5.7`, MySQL `8.0+` | 简化 CRUD，自动实体映射与分页 |
+| **缓存与限流** | Spring Data Redis, Redisson | 分布式会话、高频接口滑动窗口限流 |
+| **AI 与 RAG** | LangChain4j `0.35.0` | 大模型编排与向量管道对接 |
+| **向量模型** | `BAAI/bge-small-zh-v1.5` (512 Dim) | 中文语义匹配表现极佳的开源嵌入模型 |
+| **倒排检索** | 自研 `InMemoryBm25Service` | 中文分词与专用词高频倒排匹配 |
+| **前端工程** | Vue `3.4+`, TypeScript `5.x`, Vite `5.x` | 现代化构建流水线，全面支持类型约束 |
+| **前端 UI 体系** | Tailwind CSS / Element Plus / Lucide 图标 | 现代学院质感风格与响应式排版 |
 
-## 三、最重要的 6 条铁律（Agent 最容易违反的）
+---
 
-1. **只做 5 项核心功能，禁止自由发挥**：①课程资料构建 RAG 知识库、②学生提问智能答疑、③知识点解析、④问答记录、⑤教师后台管理（课件管理 + 问答记录查看），另加点赞/点踩与接口限流两项。
-   **严禁自行添加**统计图表、数据导出、人工纠偏、知识点自测题、多轮对话、语音输入等功能。**少做一个功能，比多做一个功能更有价值**（详见 `THREE_WEEK_PLAN.md` 第一节的功能范围表）。
-2. **单体 Spring Boot 工程**，严禁微服务/拆分多工程（包名 `com.smartqa.platform`）。
-3. **SSE 协议只有 4 种事件**：`references` / `message` / `done` / `error`，全部 JSON 载荷，`done` 必含 `recordId`——格式以 `DEV_SPECIFICATION.md` 4.2 为唯一标准。
-4. **所有 REST 接口返回 `Result<T>` 统一包装**，严禁裸返回。唯一例外：Sa-Token 鉴权拦截器与限流拦截器在 `preHandle` 里直接向 response 写 401/429 的 JSON（写法见 `MEMBER_B_DEV_GUIDE.md` 4.5/4.6，字段名必须与 `Result` 一致），因为拦截器阶段拿不到 Controller 返回值。
-5. **严禁硬编码密钥**；LLM Key、数据库密码一律环境变量注入。
-6. **前后端字段不许猜**：接口先由成员 B 出 Knife4j 文档，前端照文档调用。Token 存 `localStorage` 统一键名 `satoken`，请求头统一 `Authorization: Bearer <token>`——**头值必须带 `Bearer ` 前缀（含空格）**，只写裸 token 会被判未登录返回 401（见 `DEV_SPECIFICATION.md` 4.2）。
+## 📂 项目结构说明
 
-## 四、 当前项目阶段（3 周冲刺）
+```text
+Online Learning Platform with Intelligent Q&A and Tutoring/
+├── backend/                       # 后端 Spring Boot 3 工程
+│   ├── src/main/java/com/smartqa/platform/
+│   │   ├── config/                # 跨域、安全、Redis、Sa-Token 等配置
+│   │   ├── controller/            # 认证、课程、课件、问答、统计等接口
+│   │   ├── entity/                # 数据库实体类
+│   │   ├── mapper/                # MyBatis-Plus 数据访问层
+│   │   ├── model/                 # 统一返回结果 Result、DTO、VO
+│   │   └── service/               # 业务逻辑与 RAG 核心服务群
+│   │       ├── rag/               # 双路召回、RRF、重排、压缩与缓存
+│   │       └── ...
+│   └── src/main/resources/        # 配置文件与数据库迁移脚本
+├── frontend-student/              # 学生端前端工程 (Vue 3 + TS + Vite)
+├── frontend-teacher/              # 教师端前端工程 (Vue 3 + TS + Vite)
+├── dev-docs/                      # 项目全套规范与团队协作文档专区
+│   ├── GLOSSARY.md                # 术语表与常见问题说明
+│   ├── DEV_SPECIFICATION.md       # 编码规范与 SSE 统一契约
+│   ├── THREE_WEEK_PLAN.md         # 详细开发计划与里程碑
+│   └── ...
+├── scripts/                       # 自动化运维、知识库解析与评测脚本
+│   ├── rag_benchmark.py           # RAG 量化基准评测脚本 (Hit@K / MRR)
+│   └── ...
+└── README.md                      # 项目主介绍文档
+```
 
-**工期为 3 周。每人每周的具体任务与验收标准见 `THREE_WEEK_PLAN.md`** —— 该文件是排期唯一权威（`TEAM_WORK_DIVISION.md` 的 5 周路线图已作废）。
+---
 
-开工第一周必须先做两个技术验证（成员 A 负责，各半天）：
-1. **Chroma 元数据过滤验证**：确认 `langchain4j-chroma 0.35` 的 `EmbeddingSearchRequest.filter(IsEqualTo("courseId", ...))` 与 `removeAll(filter)` 真实可用。不可用则立即改用 LangChain4j 内置向量存储 + 本地文件持久化（成员 A 指南已允许此退路），并通知全员更新文档。
-2. **大模型连通验证**：用 `AGENT_INSTRUCTIONS.md` 的 yml 模板直连通义千问/DeepSeek 兼容接口，跑通一次流式输出。（种子账号 `teacher01/123456` 的 BCrypt 登录验证属于成员 B 的第 1 周任务 B1.4/B1.8，不在 A 的 Day 1~2 验证范围内。）
+## 🚀 快速开始与本地运行
 
-## 五、 开工前必做：第 0 周准备清单
+### 环境准备
+- **Java**: JDK 21 或更高版本
+- **Node.js**: Node.js 18.x 或更高版本（搭配 npm 或 pnpm）
+- **MySQL**: 8.0 或更高版本
+- **Redis**: 6.0 或更高版本
 
-在写第一行业务代码之前，**先把工程协作的地基打好**（约半天，组长牵头）：建代码仓、配分支保护、复制 CI 与 Issue/PR 模板、4 人环境自检、统一分发 Key、建看板。
+---
 
-完整 8 项清单见 `COLLABORATION_WORKFLOW.md` 附录 A。**跳过这一步，第 2 周必然踩坑**（合并冲突、密钥泄露、接口对不上）。
+### 1. 数据库初始化
+1. 创建数据库 `smartqa_db`（字符集推荐 `utf8mb4`）；
+2. 执行 `backend/src/main/resources/db/` 下的初始化建表脚本与种子数据；
+3. 系统内置默认演示账号：
+   - **教师账号**：`teacher01` / `123456`
+   - **学生账号**：`student01` / `123456`
 
-## 六、 许可证
+---
 
-本项目采用 [MIT License](./LICENSE)。
+### 2. 后端服务启动
+1. 复制配置模板并修改本地配置：
+   ```bash
+   cp dev-docs/templates/application-example.yml backend/src/main/resources/application-local.yml
+   ```
+   配置本地 MySQL、Redis 连接信息以及大模型 API Key（支持通义千问、DeepSeek 等兼容接口）。
+
+2. 编译并启动服务：
+   ```bash
+   cd backend
+   mvn clean compile
+   mvn spring-boot:run
+   ```
+   后端服务默认监听在端口 **`8080`**，Knife4j 接口文档地址：`http://localhost:8080/doc.html`。
+
+---
+
+### 3. 前端工程启动
+
+#### 启动学生端：
+```bash
+cd frontend-student
+npm install
+npm run dev
+```
+学生端将运行在 `http://localhost:5174`（或控制台提示端口）。
+
+#### 启动教师端：
+```bash
+cd frontend-teacher
+npm install
+npm run dev
+```
+教师端将运行在 `http://localhost:5173`。
+
+---
+
+### 4. 运行 RAG 召回与重排序量化评测
+在后端服务运行状态下，可直接运行配套评测基准，对当前真实知识库进行全自动精度检测：
+```bash
+python scripts/rag_benchmark.py
+```
+
+---
+
+## 📄 许可证 (License)
+
+本项目基于 [MIT License](./LICENSE) 协议开源。
