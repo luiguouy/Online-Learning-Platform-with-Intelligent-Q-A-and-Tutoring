@@ -111,4 +111,22 @@ public class AuthController {
 
         return Result.success(vo);
     }
+
+    /**
+     * 退出登录（注销当前令牌的会话）。
+     *
+     * <p><b>为何必须有服务端接口</b>：sa-token 配置为 {@code timeout=7 天}（application.yml），
+     * 若前端只清 {@code localStorage}，令牌在服务端仍然有效七天——公用电脑 / 令牌被复制 /
+     * XSS 窃取后用户无任何手段主动吊销。本接口调 {@code StpUtil.logout()} 使服务端会话立即失效，
+     * 拿着旧令牌再请求会回 401。</p>
+     *
+     * <p>注意：本接口<b>不在</b>鉴权白名单里（必须已登录才调得到）。已过期再调会得到 401，
+     * 前端应将“登出”视为幂等：无论接口成败都要清本地令牌并跳登录页。</p>
+     */
+    @PostMapping("/logout")
+    @Operation(summary = "退出登录（注销当前令牌）")
+    public Result<Void> logout() {
+        StpUtil.logout();
+        return Result.success();
+    }
 }

@@ -30,3 +30,20 @@ export async function register(
 ): Promise<LoginResult> {
   return request.post<unknown, LoginResult>('/auth/register', { username, password, nickname });
 }
+
+/**
+ * 退出登录（服务端注销令牌）
+ * 接口：POST /api/auth/logout（需已登录，带 Authorization 头）
+ *
+ * 为何不能只清本地：sa-token 的 timeout 是 7 天，只删 localStorage 的话
+ * 令牌在服务端仍有效七天（公用电脑 / 令牌被复制时无从主动吊销）。
+ *
+ * 调用约定：**失败也要清本地并跳登录页**（幂等）。令牌已过期时接口回 401，
+ * 那是“已经不需要注销”而不是错误，调用方不得因接口失败而保留登录态。
+ *
+ * ⚠️ 本函数尚无调用点：学生端的退出入口在 StudentLayout.vue / userStore（成员 C 在改进中），
+ * 接线跟进见安全加固 Issue；教师端已接（TeacherLayout.vue 的 handleLogout）。
+ */
+export async function logout(): Promise<void> {
+  await request.post('/auth/logout');
+}
