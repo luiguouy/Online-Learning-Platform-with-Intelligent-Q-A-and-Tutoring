@@ -41,7 +41,7 @@
               "raw": "{\n  \"username\": \"teacher01\",\n  \"password\": \"123456\"\n}"
             },
             "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] },
-            "description": "学生 / 教师统一登录入口。\n\n**本期没有注册接口**，不要找 `/api/auth/register`。\n\n返回 `data.token` 前端存 `localStorage`（键名 `satoken`），`data.role` 用于路由守卫。"
+            "description": "学生 / 教师统一登录入口。\n\n**本期没有注册接口**，不要找 `/api/auth/register`。\n\n返回 `data.token` 前端存 `localStorage`（键名 `satoken`），`data.role` 用于路由守卫。\n\n【时效标注 2026-10-17】上方“没有注册接口”为建集当时的快照，已失效：注册功能经组长批准纳入范围并合入 dev，新增 `POST /api/auth/register`（仅学生、固定 STUDENT 角色、返回体与登录一致、无需带 token）。契约详见 `backend/README-成员B后端代码说明.md` 3.1.1。"
           },
           "response": [
             {

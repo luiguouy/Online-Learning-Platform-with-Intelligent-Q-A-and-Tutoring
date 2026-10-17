@@ -163,8 +163,8 @@ public class SaTokenConfigure implements WebMvcConfigurer {
             // 学生问答接口必须已登录
             SaRouter.match("/api/qa/**", r -> StpUtil.checkLogin());
         })).addPathPatterns("/api/**")
-           // 只放行登录与接口文档；本期无注册接口，不要添加 /api/auth/register
-           .excludePathPatterns("/api/auth/login", "/doc.html", "/v3/api-docs/**");
+           // 只放行登录、学生注册与接口文档；/api/auth/register 只服务学生，教师端无注册入口
+           .excludePathPatterns("/api/auth/login", "/api/auth/register", "/doc.html", "/v3/api-docs/**");
     }
 }
 ```

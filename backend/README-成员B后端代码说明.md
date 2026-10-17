@@ -174,7 +174,24 @@ Content-Type: application/json
 ```
 
 前端把 `token` 存 `localStorage`（键名 `satoken`），`role` 存 store 用于路由守卫。
-**本期没有注册接口，不要找 `/api/auth/register`。**
+
+### 3.1.1 学生注册
+
+```
+POST /api/auth/register
+Content-Type: application/json
+
+{ "username": "student03", "password": "123456", "nickname": "李小华" }
+```
+
+返回体与 3.1 登录**完全一致**（`data` 同为 `LoginVO`）：注册即登录，前端拿到 `token` 直接 `setSession` 进工作台，不需要二次登录。
+
+契约要点（改这个接口前先读）：
+- **不接受 `role` 入参**，服务端一律落 `STUDENT`。这是防越权设计：否则任何人注册个 TEACHER 就能进 `/api/teacher/**`。
+- 字段校验：账号 `^[a-zA-Z0-9_]{4,20}$`、密码 6-32 位、姓名必填且 ≤50 字符，不合规返回 400。
+- 用户名重复返回 400 `用户名已存在`。先 SELECT 查重给友好提示，并发穿透时由 `sys_user.username` 的 UNIQUE 约束兜底（捕获 `DuplicateKeyException` 后同一句提示），两层都要保留。
+- 密码 BCrypt 加密落库，任何响应都不回显密码。
+- 本接口在 `SaTokenConfigure` 的 `excludePathPatterns` 中显式放行，调用时**不需要**带 `Authorization` 头。
 
 ### 3.2 课程列表
 

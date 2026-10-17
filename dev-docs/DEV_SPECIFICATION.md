@@ -112,7 +112,7 @@ src/
 ├── types/           // 全局 TypeScript 类型声明
 ├── utils/           // 工具函数 (SSE请求封装, 日期格式化, 复制文本)
 └── views/           // 页面组件
-    ├── auth/        // 登录页（本期不实现注册）
+    ├── auth/        // 登录页 + 学生注册页（/login、/register）
     ├── student/     // 学生前台问答工作台、知识点解析展示
     └── teacher/     // 教师后台课件管理、问答审计页
 ```

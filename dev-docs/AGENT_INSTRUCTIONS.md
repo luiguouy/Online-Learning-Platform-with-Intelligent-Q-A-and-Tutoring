@@ -294,7 +294,7 @@ const appendTokenWithThrottle = (token: string) => {
 > 说明：上面引用的 `currentAiMessage`（当前 AI 消息的响应式对象）与 `scrollToBottom()`（滚动到底部）只是占位名称，**需要你在本组件内自行定义**（`const currentAiMessage = ref({ content: '' })`、`const scrollToBottom = () => { /* 容器 scrollTop = scrollHeight */ }`）。核心是节流逻辑本身。
 
 ### 2.3 路由守卫与角色控制 (`src/router/index.ts`)
-- 未登录用户访问除 `/login` 外的任何路径强制重定向到 `/login`。**本期没有注册功能**，账号由 `data.sql` 种子数据预置（`teacher01` / `student01`）。
+- 未登录用户访问除 `/login`、`/register` 外的任何路径强制重定向到 `/login`。学生可以自助注册（`POST /api/auth/register`，服务端固定落 `STUDENT` 角色、不接受 role 入参）；教师账号不提供注册入口，仍由 `data.sql` 种子数据预置（`teacher01`）。
 - 学生身份访问 `/teacher/**` 路由弹出 `ElMessage.error('无权访问教师管理后台')` 并重定向到学生端工作台 `/student/chat`。
 
 ---
