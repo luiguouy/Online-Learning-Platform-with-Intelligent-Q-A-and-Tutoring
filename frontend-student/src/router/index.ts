@@ -8,7 +8,8 @@ import type { UserRole } from '@/types';
  * 路由 + 全局守卫（C1.4）
  *
  * 守卫规则来源：AGENT_INSTRUCTIONS.md 2.3
- * - 未登录用户访问除 /login 外的任何路径 → 强制重定向到 /login（本期无注册功能）
+ * - 未登录用户访问除 /login、/register 外的任何路径 → 强制重定向到 /login
+ *   （/register 为本地分支 feature/c-register 扩展，官方范围本期无注册功能）
  * - 非学生身份访问 /student/** → 提示并拦截（对应"学生越权访问教师后台"的反向规则）
  */
 const router = createRouter({
@@ -18,6 +19,12 @@ const router = createRouter({
       path: '/login',
       name: 'login',
       component: () => import('@/views/auth/LoginView.vue'),
+      meta: { public: true },
+    },
+    {
+      path: '/register',
+      name: 'register',
+      component: () => import('@/views/auth/RegisterView.vue'),
       meta: { public: true },
     },
     {
