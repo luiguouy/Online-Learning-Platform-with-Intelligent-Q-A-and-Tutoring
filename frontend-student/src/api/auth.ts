@@ -9,8 +9,24 @@ import type { LoginResult } from '@/types';
  * C2.4：第 1 周的本地模拟数据（src/mock/）与 Mock 开关已按 README 第八节清理清单删除，
  * 本函数只打真实后端。
  * 后端未启动 / 账号密码不对，由 request.ts 的响应拦截器统一弹提示，这里不再兜底。
- * 本期无注册接口（/api/auth/register 不存在），账号由 data.sql 种子数据预置。
  */
 export async function login(username: string, password: string): Promise<LoginResult> {
   return request.post<unknown, LoginResult>('/auth/login', { username, password });
+}
+
+/**
+ * 注册（仅学生）
+ * 接口：POST /api/auth/register —— ⚠️ 本地分支 feature/c-register 扩展接口，
+ * 官方范围明确"本期不实现注册"（DEV_SPECIFICATION.md），合入 dev 前需组长更新规范。
+ *
+ * 后端行为：固定落 STUDENT 角色（不接受 role 入参，防越权注册教师），
+ * 注册成功即登录并返回与 /auth/login 相同的 LoginVO，前端免二次登录。
+ * 用户名重复返回 400「用户名已存在」，由 request.ts 响应拦截器统一弹提示。
+ */
+export async function register(
+  username: string,
+  password: string,
+  nickname: string,
+): Promise<LoginResult> {
+  return request.post<unknown, LoginResult>('/auth/register', { username, password, nickname });
 }

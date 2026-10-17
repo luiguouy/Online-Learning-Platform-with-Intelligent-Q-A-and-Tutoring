@@ -25,6 +25,10 @@
         <el-button class="login-button" type="primary" :loading="loading" @click="handleSubmit">
           登 录
         </el-button>
+
+        <div class="login-footer">
+          <el-link type="primary" :underline="false" @click="goRegister">没有账号？去注册</el-link>
+        </div>
       </el-form>
     </el-card>
   </div>
@@ -89,6 +93,10 @@ async function handleSubmit(): Promise<void> {
     loading.value = false;
   }
 }
+
+async function goRegister(): Promise<void> {
+  await router.push('/register');
+}
 </script>
 
 <style scoped>
@@ -128,5 +136,10 @@ async function handleSubmit(): Promise<void> {
 .login-button {
   width: 100%;
   margin-top: 4px;
+}
+
+.login-footer {
+  margin-top: 14px;
+  text-align: center;
 }
 </style>
