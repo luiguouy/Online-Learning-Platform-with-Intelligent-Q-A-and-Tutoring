@@ -42,6 +42,9 @@ spring:
     # UnsupportedEncodingException，导致所有查询失败。Connector/J 8.0.13+ 自动把 UTF-8 映射为 utf8mb4。
     url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DB:smart_qa}?useUnicode=true&characterEncoding=UTF-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: ${MYSQL_USER:root}
+    # 【默认值 123456 仅供本地与 CI】本项是开发便利默认值：.env.example 里 MYSQL_PASSWORD 默认被注释掉，
+    # CI 则在 .github/workflows/ci.yml 里显式注入同值。**生产不得沿用本文件**，必须激活 prod profile
+    #（见 application-prod.yml）：那边不给默认值，漏设 MYSQL_PASSWORD 直接启动失败。
     password: ${MYSQL_PASSWORD:123456}
     hikari:
       maximum-pool-size: 20
@@ -117,12 +120,16 @@ file:
 app:
   cors:
     # 允许跨域的前端来源（逗号分隔，Ant 风格、支持端口通配）。
-    # 默认仅放行本机 dev；生产须显式改为真实前端域名，例如：
+    # 默认仅放行本机 dev；**生产必须激活 prod profile**，其中不给默认值、必须显式给真实域名：
     #   app.cors.allowed-origin-patterns=https://smartqa.example.com
     allowed-origin-patterns: ${CORS_ALLOWED_ORIGINS:http://localhost:*,http://127.0.0.1:*}
 
 # ============================================================================
 # Knife4j 与 OpenAPI3 配置
+#
+# 【安全边界】文档与鉴权白名单的关系容易误解：SaTokenConfigure 放行了 /doc.html 与
+# /v3/api-docs/**，所以“生产关文档”不能靠鉴权兜底，只能从源头禁用。默认 true 只适用于开发；
+# prod profile 会把下面三项全置 false 并额外开 knife4j.production 做双保险。
 # ============================================================================
 springdoc:
   api-docs:
