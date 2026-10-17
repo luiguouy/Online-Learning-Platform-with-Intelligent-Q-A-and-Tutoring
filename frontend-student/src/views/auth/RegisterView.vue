@@ -50,9 +50,9 @@
 
 <script setup lang="ts">
 /**
- * 学生端注册页（本地分支 feature/c-register 扩展）
- * ⚠️ 官方范围明确"本期不实现注册"（DEV_SPECIFICATION.md），
- * 本页仅用于本地演示/学习，未经组长更新规范前不得合并到 dev。
+ * 学生端注册页（官方功能，仅面向学生）
+ * 后端只收 username/password/nickname 并固定落 STUDENT，教师端不提供注册入口。
+ * 表单规则须与后端 RegisterDTO 的 @Pattern/@Size 保持一致，改一边必须同步另一边。
  *
  * 后端约定：POST /api/auth/register 固定落 STUDENT 角色，注册成功即登录
  * 并返回 LoginVO，因此本页成功后直接 setSession 进工作台，无需二次登录。

@@ -33,7 +33,7 @@ public class SaTokenConfigure implements WebMvcConfigurer {
             SaRouter.match("/api/teacher/**", r -> StpUtil.checkRole("TEACHER"));
         })).addPathPatterns("/api/**")
            // 放行登录、注册与 Swagger/Knife4j 接口文档静态资源
-           // /api/auth/register 为 feature/c-register 扩展接口（非官方范围，见 AuthController 注释）
+           // /api/auth/register 只服务学生：服务端固定落 STUDENT、不接受 role 入参，故可公开放行；教师端无注册入口
            .excludePathPatterns(
                    "/api/auth/login",
                    "/api/auth/register",

@@ -22,9 +22,9 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 身份认证接口（学生 / 教师统一入口）。
  *
- * <p>⚠️ 本期官方范围无注册接口（DEV_SPECIFICATION.md 明确「本期不实现注册」）。
- * {@code /api/auth/register} 为成员 C 本地分支 {@code feature/c-register} 的扩展，
- * 未经组长更新规范前不得合并到 dev。</p>
+ * <p>登录与学生注册都是官方功能：注册只面向学生（{@code /api/auth/register}），
+ * 服务端固定落 STUDENT 角色、不接受 role 入参，教师账号只由 {@code data.sql} 种子数据预置。
+ * 请求与返回体契约见 {@code backend/README-成员B后端代码说明.md} §3.1 / §3.1.1，改动前必读。</p>
  *
  * @author 成员 B
  */
@@ -66,9 +66,9 @@ public class AuthController {
     }
 
     /**
-     * 注册（本地分支扩展，非官方范围）。
+     * 学生注册。
      *
-     * <p>设计要点：</p>
+     * <p>以下三条是安全与数据约束，改动前先读 README §3.1.1：</p>
      * <ul>
      *   <li>不接受 role 入参，一律落 STUDENT —— 防止自助注册教师账号越权进入教师后台；</li>
      *   <li>用户名查重先走 SELECT 给出友好提示，再靠数据库 UNIQUE 约束兜底并发；</li>
@@ -76,7 +76,7 @@ public class AuthController {
      * </ul>
      */
     @PostMapping("/register")
-    @Operation(summary = "用户注册（仅学生，本地分支扩展接口）")
+    @Operation(summary = "用户注册（仅学生）")
     public Result<LoginVO> register(@Valid @RequestBody RegisterDTO dto) {
         if (userService.getByUsername(dto.getUsername()) != null) {
             throw new BusinessException("用户名已存在");

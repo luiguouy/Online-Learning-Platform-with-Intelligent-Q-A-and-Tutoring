@@ -16,8 +16,8 @@ export async function login(username: string, password: string): Promise<LoginRe
 
 /**
  * 注册（仅学生）
- * 接口：POST /api/auth/register —— ⚠️ 本地分支 feature/c-register 扩展接口，
- * 官方范围明确"本期不实现注册"（DEV_SPECIFICATION.md），合入 dev 前需组长更新规范。
+ * 接口：POST /api/auth/register（官方功能，契约见 backend/README-成员B后端代码说明.md §3.1.1）
+ * 该接口在 Sa-Token 拦截器里显式放行，前端调用时不需要带 Authorization 头。
  *
  * 后端行为：固定落 STUDENT 角色（不接受 role 入参，防越权注册教师），
  * 注册成功即登录并返回与 /auth/login 相同的 LoginVO，前端免二次登录。

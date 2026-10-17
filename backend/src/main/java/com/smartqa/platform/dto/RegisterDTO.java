@@ -11,13 +11,13 @@ import java.io.Serializable;
 /**
  * 注册请求体。
  *
- * <p>⚠️ 注意：本期范围冻结、官方无注册功能（DEV_SPECIFICATION.md「本期不实现注册」）。
- * 本 DTO 仅存在于成员 C 的本地分支 {@code feature/c-register}，用于本地演示/学习，
- * 未经组长更新规范前不得合并到 dev。</p>
+ * <p>学生注册请求体（官方功能，接口契约见 backend/README-成员B后端代码说明.md §3.1.1）。
+ * 注册入口只面向学生：教师账号由 data.sql 预置，任何「给注册加 role 入参」的改动都会打开越权注册教师的口子。
+ * 校验规则变更须同步前端 RegisterView.vue 的表单规则与 README §3.1.1。</p>
  *
  * <p>不含 role 字段：自助注册一律落 STUDENT，防止越权注册教师账号。</p>
  *
- * @author 成员 C（本地扩展）
+ * @author 成员 C
  */
 @Data
 @Schema(description = "注册请求")
