@@ -37,4 +37,7 @@ public class SessionVO implements Serializable {
 
     @Schema(description = "最后活跃时间，列表按它倒序")
     private LocalDateTime updatedAt;
+
+    @Schema(description = "是否归档：0-正常，1-已归档")
+    private Integer isArchived;
 }

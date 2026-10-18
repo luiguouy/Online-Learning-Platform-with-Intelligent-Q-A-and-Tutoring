@@ -25,6 +25,9 @@ CREATE TABLE IF NOT EXISTS sys_user (
     nickname VARCHAR(50) NOT NULL COMMENT '用户真实姓名',
     role VARCHAR(20) NOT NULL DEFAULT 'STUDENT' COMMENT '角色: STUDENT-学生, TEACHER-教师',
     avatar_url VARCHAR(255) DEFAULT '' COMMENT '头像地址',
+    -- 个性签名。列宽 255，后端 UpdateProfileDTO 只校验 @Size(max=150)（余量 105）；前端 ProfileView 规则须与后端的 150 一致，不要各写一套。
+    -- 已有库补列：ALTER TABLE sys_user ADD COLUMN bio VARCHAR(255) NOT NULL DEFAULT '' COMMENT '个性签名';
+    bio VARCHAR(255) NOT NULL DEFAULT '' COMMENT '个性签名',
     is_deleted TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除: 0-正常, 1-删除',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'
@@ -67,6 +70,9 @@ CREATE TABLE IF NOT EXISTS qa_session (
     user_id BIGINT NOT NULL COMMENT '提问学生ID',
     course_id BIGINT NOT NULL COMMENT '关联课程ID',
     session_title VARCHAR(100) NOT NULL DEFAULT '新建答疑会话' COMMENT '会话标题',
+    -- 会话归档状态。对应 QaSession.isArchived（列表筛选与切换归档接口都用它）。
+    -- 已有库补列：ALTER TABLE qa_session ADD COLUMN is_archived TINYINT NOT NULL DEFAULT 0 COMMENT '归档状态: 0-未归档, 1-已归档';
+    is_archived TINYINT NOT NULL DEFAULT 0 COMMENT '归档状态: 0-未归档, 1-已归档',
     is_deleted TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -106,3 +112,8 @@ CREATE TABLE IF NOT EXISTS course_knowledge_point (
 
 -- 自检：应输出 6 行
 SHOW TABLES;
+
+-- ⚠ 维护约束：本文件是库结构的唯一真相。**实体加字段必须同步改这里的 DDL**，
+-- 否则本地库（手工 ALTER 过）看不出问题，CI 用本文件建新库时则直接报 Unknown column。
+-- 已踩过两次：sys_user.bio、qa_session.is_archived。
+-- 本地自检方法：新建一个空库并只跑本文件 + data.sql，再拿它跑一次 mvn test（与 CI 同构）。

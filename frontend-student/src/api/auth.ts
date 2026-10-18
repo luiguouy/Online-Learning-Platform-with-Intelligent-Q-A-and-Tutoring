@@ -41,8 +41,7 @@ export async function register(
  * 调用约定：**失败也要清本地并跳登录页**（幂等）。令牌已过期时接口回 401，
  * 那是“已经不需要注销”而不是错误，调用方不得因接口失败而保留登录态。
  *
- * ⚠️ 本函数尚无调用点：学生端的退出入口在 StudentLayout.vue / userStore（成员 C 在改进中），
- * 接线跟进见安全加固 Issue；教师端已接（TeacherLayout.vue 的 handleLogout）。
+ * 调用点：StudentLayout.vue 侧边栏「退出登录」按钮（handleLogout）。
  */
 export async function logout(): Promise<void> {
   await request.post('/auth/logout');

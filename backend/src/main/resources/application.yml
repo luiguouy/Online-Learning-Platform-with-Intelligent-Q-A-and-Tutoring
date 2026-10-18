@@ -123,6 +123,14 @@ app:
     # 默认仅放行本机 dev；**生产必须激活 prod profile**，其中不给默认值、必须显式给真实域名：
     #   app.cors.allowed-origin-patterns=https://smartqa.example.com
     allowed-origin-patterns: ${CORS_ALLOWED_ORIGINS:http://localhost:*,http://127.0.0.1:*}
+  # 匿名入口与写盘接口限流（AuthRateLimitInterceptor）。
+  # 阈值为生产默认值；集成测试会在同一分钟内反复登录，application-test.yml 里给宽预算
+  #（限流行为本身由 AuthRateLimitInterceptorTest 直接构造实例覆盖，不依赖本处配置）。
+  # 口径与键选择依据见 dev-docs/SECURITY_DECISIONS.md 的 SEC-3，不得随意抬高到失去防护意义的量级。
+  rate-limit:
+    login-per-ip-per-minute: ${RATE_LIMIT_LOGIN_PER_MIN:10}
+    register-per-ip-per-ten-minutes: ${RATE_LIMIT_REGISTER_PER_10MIN:5}
+    upload-per-user-per-minute: ${RATE_LIMIT_UPLOAD_PER_MIN:10}
 
 # ============================================================================
 # Knife4j 与 OpenAPI3 配置

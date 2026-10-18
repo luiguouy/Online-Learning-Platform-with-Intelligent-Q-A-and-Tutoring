@@ -54,3 +54,7 @@ HANDOFF.md
 # Graft 本地产物（每人各自 graft build 生成，不入库）
 graft/
 .ignore
+
+# OCR/提取得到的知识库源文档（体积大、可由 scripts/ocr_and_ingest_os.py 与
+# scripts/ingest_ai_agent_course.py 从原始资料重新生成，不入库）
+knowledge_extracted/

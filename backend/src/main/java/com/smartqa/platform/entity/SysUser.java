@@ -54,6 +54,9 @@ public class SysUser implements Serializable {
     @Schema(description = "头像地址")
     private String avatarUrl;
 
+    @Schema(description = "个性签名")
+    private String bio;
+
     /** 逻辑删除列：6 张表全部必须有，缺列时 removeById() 会抛 Unknown column */
     @TableLogic
     @Schema(description = "逻辑删除：0-正常，1-删除")

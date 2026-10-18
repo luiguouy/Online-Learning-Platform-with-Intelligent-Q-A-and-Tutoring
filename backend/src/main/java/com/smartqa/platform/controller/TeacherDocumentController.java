@@ -7,6 +7,7 @@ import com.smartqa.platform.entity.CourseDocument;
 import com.smartqa.platform.service.CourseDocumentService;
 import com.smartqa.platform.service.CourseService;
 import com.smartqa.platform.service.rag.DocumentIngestionService;
+import com.smartqa.platform.service.rag.SemanticCacheService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
@@ -66,6 +67,7 @@ public class TeacherDocumentController {
     private final CourseDocumentService docService;
     private final CourseService courseService;
     private final DocumentIngestionService ingestionService;
+    private final SemanticCacheService semanticCacheService;
 
     /** 课件切块专用线程池（AsyncThreadPoolConfig 中定义，与 SSE 问答流隔离），禁止使用默认公共池 */
     @Resource(name = "ingestExecutor")
@@ -191,6 +193,7 @@ public class TeacherDocumentController {
         // 在途线程侧的兜底见 submitIngestion 的「写入后复核」。
         ingestionService.removeDocumentVectors(id);   // ①
         docService.removeById(id);                    // ② 逻辑删除
+        semanticCacheService.invalidateCourse(doc.getCourseId()); // 刷新该课程语义缓存
         // 【审查 P2-2】③ 失败不得让整个删除接口回 500：删除这一业务事实（②）已经成立，
         // 回 500 会让教师误以为没删掉而重复上传，反而放大残留；且记录已逻辑删除，
         // 重试只会拿到 404"课件不存在"，再没有任何接口能触发这次清理。
@@ -216,6 +219,7 @@ public class TeacherDocumentController {
             throw new BusinessException(404, "课件不存在");
         }
         courseService.assertTeacherOwnsCourse(doc.getCourseId(), teacherId);
+        semanticCacheService.invalidateCourse(doc.getCourseId());
 
         // 1. 状态 CAS：仅当课件处于终态(CHUNKED/FAILED)才允许重建。抢到锁才继续，
         //    避免对“解析中”课件并发重复提交切块，也避免“删旧向量”与“在途写入”交错产生重复/幽灵切片。
@@ -348,5 +352,21 @@ public class TeacherDocumentController {
     private String extractExtension(String fileName) {
         int idx = fileName.lastIndexOf('.');
         return idx < 0 ? "" : fileName.substring(idx + 1).toLowerCase();
+    }
+
+    /**
+     * 孤儿向量切片对账清理端点（Issue #62 根治）
+     *
+     * <p>供管理员或维护人员一键触发（也可按需接入定时器）：扫描已逻辑删除超过静默期的课件，
+     * 强力清理向量库与 BM25 中残留的孤儿切块，彻底闭环删后复扫失败残留问题。</p>
+     *
+     * @param quietMinutes 静默期分钟数，默认 10
+     * @return 成功清理的课件数
+     */
+    @Operation(summary = "孤儿向量切片对账清理（#62 根治）", description = "清理已逻辑删除超过静默期的课件残留切片")
+    @PostMapping("/reconcile-deleted-vectors")
+    public Result<Integer> reconcileDeletedVectors(@RequestParam(defaultValue = "10") int quietMinutes) {
+        int count = docService.reconcileDeletedDocumentVectors(quietMinutes);
+        return Result.success(count);
     }
 }

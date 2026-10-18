@@ -39,6 +39,12 @@ const router = createRouter({
           component: () => import('@/views/student/ChatWorkspace.vue'),
           meta: { title: '智能答疑' },
         },
+        {
+          path: 'profile',
+          name: 'student-profile',
+          component: () => import('@/views/student/ProfileView.vue'),
+          meta: { title: '个人主页' },
+        },
         // C2.5 知识点解析展示面板、C2.6 历史会话交互在此扩展
       ],
     },

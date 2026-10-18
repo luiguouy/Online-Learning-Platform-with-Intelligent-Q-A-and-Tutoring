@@ -94,10 +94,14 @@ public class SseChatController {
 
     private final SseStreamService sseStreamService;
     private final ObjectMapper objectMapper;
+    private final com.smartqa.platform.service.rag.CourseSyllabusService courseSyllabusService;
 
-    public SseChatController(SseStreamService sseStreamService, ObjectMapper objectMapper) {
+    public SseChatController(SseStreamService sseStreamService,
+                             ObjectMapper objectMapper,
+                             com.smartqa.platform.service.rag.CourseSyllabusService courseSyllabusService) {
         this.sseStreamService = sseStreamService;
         this.objectMapper = objectMapper;
+        this.courseSyllabusService = courseSyllabusService;
     }
 
     /**
@@ -119,7 +123,10 @@ public class SseChatController {
             @RequestParam(required = false) String question,
 
             @Parameter(description = "会话 ID（首次提问传 0 或省略，续问传上次 done 包的 sessionId）")
-            @RequestParam(required = false) Long sessionId) {
+            @RequestParam(required = false) Long sessionId,
+
+            @Parameter(description = "答疑模式：direct（直答模式）/ tutor（启发式导师辅导模式，默认 direct）")
+            @RequestParam(required = false, defaultValue = "direct") String mode) {
 
         // 关键：登录态必须在请求线程取（Sa-Token 是 ThreadLocal），
         // 传给 sseExecutor 异步线程里的 streamChat —— 它拿不到登录态。
@@ -153,7 +160,7 @@ public class SseChatController {
         if (question.length() > MAX_QUESTION_LENGTH) {
             log.warn("[SSE] 提问过长，userId={}, length={}", userId, question.length());
             sendErrorEvent(emitter, ERROR_CODE_PARAM,
-                    "提问内容过长（最多 " + MAX_QUESTION_LENGTH + " 字），请精简后重试");
+                    "提问内容过长（最多 " + MAX_QUESTION_LENGTH + " 个字符），请精简后重试");
             return emitter;
         }
 
@@ -161,7 +168,7 @@ public class SseChatController {
         // sseExecutor 采用 AbortPolicy：队列+线程打满时 @Async 提交会抛 TaskRejectedException，
         // 这里捕获后立刻给客户端下发 error 事件并结束，而不是拖占 Tomcat 线程（防级联 DoS）。
         try {
-            sseStreamService.streamChat(emitter, userId, courseId, question, sessionId);
+            sseStreamService.streamChat(emitter, userId, courseId, question, sessionId, mode);
         } catch (RejectedExecutionException e) {
             log.warn("[SSE] 问答线程池饱和，拒绝请求 userId={}, courseId={}", userId, courseId);
             sendErrorEvent(emitter, ERROR_CODE_BUSY, "服务繁忙，请稍后重试");
@@ -189,5 +196,19 @@ public class SseChatController {
             log.warn("[SSE] error 事件下发失败（客户端可能已断开）: {}", e.getMessage());
         }
         emitter.complete();
+    }
+
+    /**
+     * 查询课程知识大纲全景与考点树（A3.2）
+     *
+     * @param courseId 课程 ID
+     * @return 结构化课程大纲与考点树
+     */
+    @Operation(summary = "获取课程知识大纲与考点树",
+               description = "提供完整的章节大纲全景与知识考点映射，赋能启发式教学导学")
+    @GetMapping("/course/{courseId}/syllabus")
+    public com.smartqa.platform.common.Result<com.smartqa.platform.vo.CourseSyllabusVO> getCourseSyllabus(
+            @PathVariable Long courseId) {
+        return com.smartqa.platform.common.Result.success(courseSyllabusService.getCourseSyllabus(courseId));
     }
 }

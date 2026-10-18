@@ -61,9 +61,35 @@ public class SaTokenConfigure implements WebMvcConfigurer {
 
         // 匿名入口与写盘接口限流（防登录暴破 / 批量灌水注册 / 刷盘）：
         // 必须排在 Sa-Token 拦截器之后注册：登录用户类规则靠前的鉴权已保证已登录。
-        // 学生附件与头像接口（/api/qa/upload/attachment、/api/user/avatar）尚未合入 dev，
-        // 落地时同步往 AuthRateLimitInterceptor.RULES 里补两条同等阈值的规则即可生效。
+        // 路径清单必须与 AuthRateLimitInterceptor.RULES 逐项对应（SEC-3 硬约束 4：只改一边等于死配置或不拦）。
         registry.addInterceptor(authRateLimitInterceptor)
-                .addPathPatterns("/api/auth/login", "/api/auth/register", "/api/teacher/docs/upload");
+                .addPathPatterns(
+                        "/api/auth/login",
+                        "/api/auth/register",
+                        "/api/teacher/docs/upload",
+                        "/api/qa/upload/attachment",
+                        "/api/user/avatar");
+    }
+
+    @org.springframework.beans.factory.annotation.Value("${file.upload-dir}")
+    private String uploadDir;
+
+    @Override
+    public void addResourceHandlers(org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry registry) {
+        String cleanPath = uploadDir.replace("\\", "/");
+        if (!cleanPath.endsWith("/")) {
+            cleanPath += "/";
+        }
+        // SEC-2（dev-docs/SECURITY_DECISIONS.md）：**严禁**把上传根目录整体映射为静态资源（"/uploads/**" 这种盖头写法）。
+        // Sa-Token 只 match("/api/**")，走到这里的路径等于完全不要登录。而课件原件落在
+        // {uploadDir}/{courseId}/{时间戳}_{原始文件名}（零随机熵、courseId 自增、文件名在学生端可见），
+        // 盖头映射会把它们变成“未登录可下载”——而 SEC-1 的口径是“对全体**登录**用户公开”，不是匿名。
+        // 只允许下这两个低敏子目录；新增公开目录时必须逐条往这里加，同时保证文件名带完整 UUID。
+        registry.addResourceHandler("/uploads/avatars/**")
+                .addResourceLocations("file:" + cleanPath + "avatars/");
+        registry.addResourceHandler("/uploads/attachments/**")
+                .addResourceLocations("file:" + cleanPath + "attachments/");
+        // 课件原件如需“下载原件”能力，走带鉴权的接口（TEACHER 角色 + assertTeacherOwnsCourse），
+        // 不得靠静态映射兼带发出。
     }
 }

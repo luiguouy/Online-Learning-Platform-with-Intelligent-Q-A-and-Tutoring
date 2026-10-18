@@ -1,19 +1,22 @@
 /* 全局基础样式：只做 reset 与主题变量，禁止污染组件内部选择器（DEV_SPECIFICATION.md 3.2） */
 
 :root {
-  /* 设计主色：Indigo（DEV_SPECIFICATION.md 3.2） */
-  --el-color-primary: #4f46e5;
-  --el-color-primary-light-3: #7c74ec;
-  --el-color-primary-light-5: #a5a0f1;
-  --el-color-primary-light-7: #cecbf7;
-  --el-color-primary-light-8: #e2e0fa;
-  --el-color-primary-light-9: #f0effd;
-  --el-color-primary-dark-2: #3f38b7;
+  /* 全专业通用：现代学府蓝与理性学术灰阶 */
+  --el-color-primary: #2563eb;
+  --el-color-primary-light-3: #60a5fa;
+  --el-color-primary-light-5: #93c5fd;
+  --el-color-primary-light-7: #bfdbfe;
+  --el-color-primary-light-8: #dbeafe;
+  --el-color-primary-light-9: #eff6ff;
+  --el-color-primary-dark-2: #1d4ed8;
 
-  --app-bg: #f5f6f8;
-  --app-text: #1e293b;
+  --app-bg: #f8fafc;
+  --app-surface: #ffffff;
+  --app-text: #0f172a;
+  --app-text-regular: #334155;
   --app-text-muted: #64748b;
   --app-border: #e2e8f0;
+  --app-border-subtle: #f1f5f9;
 }
 
 * {
@@ -29,10 +32,11 @@ body,
 }
 
 body {
-  font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB',
-    'Microsoft YaHei', Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "WenQuanYi Micro Hei", sans-serif;
   font-size: 14px;
-  color: var(--app-text);
+  color: var(--app-text-regular);
   background-color: var(--app-bg);
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }

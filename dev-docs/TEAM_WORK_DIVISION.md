@@ -93,12 +93,20 @@
 | **课件列表** | `/api/teacher/docs/list?courseId=` | `GET` | 成员 B | 成员 D | 教师端课件管理列表（实现见 B 指南 4.5） |
 | **课件删除** | `/api/teacher/docs/{id}` | `DELETE` | 成员 B（接口）+ 成员 A（删向量） | 成员 D | 级联清理 Chroma 切块，防幽灵参考 |
 | **索引重构** | `/api/teacher/docs/{id}/reindex` | `POST` | 成员 B（接口）+ 成员 A（重建向量） | 成员 D | 重新计算 Embedding 向量，异步执行 |
-| **智能答疑 (SSE)** | `/api/qa/chat/stream` | `GET (SSE)` | 成员 A | 成员 C | `question`, `courseId` -> 流式片段与出处 |
+| **智能答疑 (SSE)** | `/api/qa/chat/stream` | `GET (SSE)` | 成员 A | 成员 C | `question`, `courseId`, 可选 `mode`（`direct` 默认 / `tutor` 启发式辅导）-> 流式片段与出处 |
 | **会话历史** | `/api/qa/sessions?courseId=` | `GET` | 成员 B | 成员 C | 历史会话列表（实现见 B 指南 4.5） |
 | **会话明细** | `/api/qa/records?sessionId=` | `GET` | 成员 B | 成员 C | 指定会话下的问答记录（实现见 B 指南 4.5） |
 | **点赞评价** | `/api/qa/records/{id}/feedback`| `POST` | 成员 B | 成员 C | `recordId`, `status(1/-1)`（实现见 B 指南 4.5） |
+| **退出登录** | `/api/auth/logout` | `POST` | 成员 A | 成员 C & D | 服务端注销令牌（sa-token 会话立即失效）；前端必须幂等：接口失败也要清本地并跳登录页 |
+| **个人资料** | `/api/user/profile` | `GET` / `PUT` | 成员 A | 成员 C | 昵称 / 头像 / 个性签名；签名上限 **150 字，前后端同一阈值** |
+| **头像上传** | `/api/user/avatar` | `POST (Form)` | 成员 A | 成员 C | 图片 ≤5MB；落盘 `avatars/` + 完整 UUID，该子目录经静态映射公开可访（SEC-2） |
+| **问答附件上传** | `/api/qa/upload/attachment` | `POST (Form)` | 成员 A | 成员 C | 图片 ≤5MB / 文档 ≤20MB；文档文本走**与课件同一套三层上限**提取供 AI 上下文 |
+| **课程大纲导学** | `/api/qa/course/{courseId}/syllabus` | `GET` | 成员 A | 成员 C | 课件目录树 + 章节层级 + 关联考点（`CourseSyllabusVO`） |
 | **知识点生成** | `/api/knowledge/generate` | `POST` | 成员 A | 成员 C | 知识点名称 -> 结构化考点解析 |
 | **教师查看问答记录** | `/api/teacher/qa/records?courseId=` | `GET` | 成员 B | 成员 D | 学生提问明细，供教师后台查看 |
+
+> **限流覆盖范围**：上表中的 `logout` / `profile` / `avatar` / `attachment` 与登录、注册、课件上传一同纳入限流。
+> 路径与阈值见 `AuthRateLimitInterceptor` 与 `app.rate-limit.*`，两个限流拦截器的分工口径见 `SECURITY_DECISIONS.md` 的 SEC-3。
 
 > **契约变更规则**：**第 1 周末（Day 7，Gate 1）为接口契约冻结日**（工期为 3 周，以 `THREE_WEEK_PLAN.md` 为准）。冻结后，上表任何字段的增删改必须走「提 Issue → 双方确认 → 先改文档后改代码 → 群内通知」四步法，详见 `COLLABORATION_WORKFLOW.md` 6.3。严禁口头改字段或前端私自适配。
 > **Mock 先行**：接口未实现前，提供方先给 Postman Mock 或 Knife4j 定义，调用方照 Mock 开发，互不阻塞（同上 6.4）。

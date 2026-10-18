@@ -25,8 +25,8 @@ class AuthRateLimitInterceptorTest {
     private static final String LOGIN = "/api/auth/login";
     private static final String REGISTER = "/api/auth/register";
 
-    /** 每个用例一个新实例，避免窗口计数在用例间串味 */
-    private final AuthRateLimitInterceptor interceptor = new AuthRateLimitInterceptor();
+    /** 显式给定与生产默认一致的阈值；每个用例一个新实例，避免窗口计数在用例间串味 */
+    private final AuthRateLimitInterceptor interceptor = new AuthRateLimitInterceptor(10, 5, 10);
 
     private MockHttpServletRequest request(String uri, String ip) {
         MockHttpServletRequest request = new MockHttpServletRequest("POST", uri);

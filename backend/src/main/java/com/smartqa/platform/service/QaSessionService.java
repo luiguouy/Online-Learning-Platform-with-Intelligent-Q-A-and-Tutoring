@@ -102,9 +102,36 @@ public interface QaSessionService extends IService<QaSession> {
     QaSession getOwnedSession(Long sessionId, Long userId, Long courseId);
 
     /**
+     * 查询当前学生在某课程下的会话列表（支持指定归档状态筛选）。
+     *
+     * @param courseId   课程 ID
+     * @param userId     当前登录用户 ID
+     * @param isArchived 是否归档：0-未归档，1-已归档；传 null 则不限制
+     * @return 会话列表
+     */
+    List<SessionVO> listMySessions(Long courseId, Long userId, Integer isArchived);
+
+    /**
      * 刷新会话的最后活跃时间，让历史会话列表按最近提问排序。
      *
      * @param sessionId 会话 ID
      */
     void touch(Long sessionId);
+
+    /**
+     * 删除本人拥有的会话（逻辑软删除，并级联软删除关联记录）。
+     *
+     * @param sessionId 会话 ID
+     * @param userId    当前学生 ID
+     */
+    void deleteSession(Long sessionId, Long userId);
+
+    /**
+     * 切换会话的归档状态（已归档变未归档，未归档变已归档）。
+     *
+     * @param sessionId 会话 ID
+     * @param userId    当前学生 ID
+     * @return 更新后的归档状态（0-未归档，1-已归档）
+     */
+    int toggleArchive(Long sessionId, Long userId);
 }
