@@ -159,14 +159,16 @@ class AuthControllerTest {
     @DisplayName("参数校验：口令过短、账号字符非法、姓名为空均回 400 且不落库")
     void invalidPayloadsRejected() throws Exception {
         String[] cases = {
-                // 口令不足 6 位
+                // 口令不足 8 位
                 "{\"username\":\"t91auth01\",\"password\":\"12345\",\"nickname\":\"甲\"}",
                 // 账号含非法字符（@）
                 "{\"username\":\"t91auth01@mail\",\"password\":\"Passw0rd91\",\"nickname\":\"乙\"}",
                 // 姓名空白
                 "{\"username\":\"t91auth01\",\"password\":\"Passw0rd91\",\"nickname\":\"   \"}",
         };
-        String[] expectedHints = {"密码", "账号", "姓名"};
+        // 第三条只断言“名”字：@NotBlank 的「姓名不能为空」与 ValidNickname 的「名称须为…」
+        // 都会命中，取第一条的顺序不应该被当成契约依赖
+        String[] expectedHints = {"密码", "账号", "名"};
 
         for (int i = 0; i < cases.length; i++) {
             MvcResult result = register(cases[i]);
@@ -222,6 +224,59 @@ class AuthControllerTest {
                 "登出后服务端会话必须立即失效，否则令牌泄露无法吊销");
     }
 
+    @Test
+    @DisplayName("口令强度：短、纯字母、等步长序列、黑名单弱口令均回 400 且不落库（Issue #94）")
+    void passwordPolicyRejectsWeakForms() throws Exception {
+        // 每条只违反一个维度，这样失败时能定位到具体规则而不是“反正都被拒”
+        String[] weakPasswords = {
+                "Ab1!xyz",        // 7 位，不足 8
+                "abcdefghij",     // 纯字母，无数字
+                "1234567890",     // 纯数字 + 等步长序列 + 黑名单
+                "passw0rd",       // 结构合法（字母+数字、非序列）但命中黑名单：专测黑名单这一支
+                "aaaaaaaa",       // 整串同字符
+        };
+        for (String pwd : weakPasswords) {
+            JsonNode body = bodyOf(register(String.format(
+                    "{\"username\":\"t91auth01\",\"password\":\"%s\",\"nickname\":\"测试\"}", pwd)));
+            assertEquals(400, body.path("code").asInt(), "弱口令应被拒：" + pwd + " -> " + body);
+            assertEquals(com.smartqa.platform.validation.StrongPassword.MESSAGE,
+                    body.path("message").asText(),
+                    "拒绝文案必须与后端约束文案逐字一致（前端已复用同一句）：" + pwd);
+        }
+    
+        assertEquals(0, jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM sys_user WHERE username LIKE 't91auth%'", Integer.class),
+                "被强度规则拒绝的注册不得写入用户");
+    
+        // 反向断言：结构合格但含符号的口令应当通过（避免规则过严把正常用户挡在门外）
+        JsonNode ok = bodyOf(register("""
+                {"username":"t91auth01","password":"Tr0ub4dor&3","nickname":"合法口令用户"}"""));
+        assertEquals(200, ok.path("code").asInt(), "合规口令应注册成功，实际：" + ok);
+    }
+    
+    @Test
+    @DisplayName("昵称卫生：零宽字符、尖括号、整串灌水、40 字长名均回 400（Issue #94）")
+    void nicknamePolicyRejectsDirtyForms() throws Exception {
+        String[] badNicknames = {
+                "张\u200B小华",                 // 零宽空格：会让同一个显示名“看起来相同比实不同”
+                "<script>x</script>",        // 尖括号：不进日志与教师端导出
+                "aaaaaaaa",                   // 整串同字符灌水
+                "李小华 ",                     // 尾部空白：拒绝而不是静默 trim
+                "一二三四五六七八九十一二三四五六七八九十一二三四五六七八九十超过三十",  // 34 字，旧注册上限 50 能过、新约束必须拒
+        };
+        for (String nick : badNicknames) {
+            JsonNode body = bodyOf(register(String.format(
+                    "{\"username\":\"t91auth01\",\"password\":\"Passw0rd91\",\"nickname\":\"%s\"}", nick)));
+            assertEquals(400, body.path("code").asInt(),
+                    "应被拒的昵称：[" + nick + "] -> " + body);
+        }
+    
+        // 正向：中文真名与常见英文昵称应当通过（规则不能把真实用户挡住）
+        JsonNode ok = bodyOf(register("""
+                {"username":"t91auth01","password":"Passw0rd91","nickname":"王小雨-2024级"}"""));
+        assertEquals(200, ok.path("code").asInt(), "合规姓名应注册成功，实际：" + ok);
+    }
+    
     @Test
     @DisplayName("未登录不得调用登出接口（/api/auth/logout 不在匿名白名单里）")
     void logoutRequiresLogin() throws Exception {
