@@ -25,6 +25,10 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: true,
       },
+      '/uploads': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
     },
   },
   // C3.2 修缺陷：preview 有独立的 proxy 配置，server.proxy 只作用于 dev。
@@ -34,6 +38,10 @@ export default defineConfig({
   preview: {
     proxy: {
       '/api': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
+      '/uploads': {
         target: 'http://localhost:8080',
         changeOrigin: true,
       },

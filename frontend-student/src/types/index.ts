@@ -34,6 +34,7 @@ export interface LoginResult {
   username?: string;
   /** 种子数据为空串，渲染前判空 */
   avatarUrl?: string;
+  bio?: string;
 }
 
 /** SSE 参考资料出处（五字段冻结，DEV_SPECIFICATION.md 4.2） */
@@ -68,6 +69,16 @@ export interface QaSession {
   id: number;
   sessionTitle: string;
   createdAt: string;
+  isArchived?: number;
+}
+
+/** 问答附件信息 */
+export interface AttachmentInfo {
+  fileUrl: string;
+  fileName: string;
+  fileType: 'image' | 'doc';
+  fileSize?: number;
+  extractedText?: string;
 }
 
 /** 问答记录（GET /api/qa/records?sessionId=） */
@@ -87,6 +98,8 @@ export interface ChatMessage {
   id: string;
   role: 'user' | 'ai';
   content: string;
+  /** 可选的用户上传附件（图片/参考文档） */
+  attachment?: AttachmentInfo;
   /** AI 消息：命中的课件出处 */
   references?: SseReference[];
   /** AI 消息：落库后回传的 recordId（点赞/点踩用） */
@@ -102,3 +115,24 @@ export interface ChatMessage {
   /** AI 消息：流式过程中的错误提示（error 事件或传输异常），与正文分开显示 */
   error?: string;
 }
+
+/** 用户个人主页资料模型 */
+export interface UserProfile {
+  userId: number;
+  username: string;
+  nickname: string;
+  role: UserRole;
+  avatarUrl?: string;
+  bio?: string;
+  createdAt?: string;
+  sessionCount?: number;
+  recordCount?: number;
+}
+
+/** 修改个人资料请求参数 */
+export interface UpdateProfileDTO {
+  nickname: string;
+  avatarUrl?: string;
+  bio?: string;
+}
+

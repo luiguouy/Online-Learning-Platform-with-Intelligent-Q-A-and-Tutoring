@@ -1,19 +1,13 @@
 import { ref } from 'vue';
 import { defineStore } from 'pinia';
 
-import { listRecords, listSessions, submitFeedback } from '@/api/qa';
+import { listRecords, listSessions, submitFeedback, deleteSession as apiDeleteSession, toggleArchiveSession as apiToggleArchiveSession } from '@/api/qa';
 import { SseChatClient } from '@/utils/sseClient';
 import { TypewriterBuffer } from '@/utils/typewriter';
-import type { ChatMessage, QaRecord, QaSession, SseReference } from '@/types';
+import type { AttachmentInfo, ChatMessage, QaRecord, QaSession, SseReference } from '@/types';
 
 /**
- * 会话与消息
- *
- * C1.5：课程切换 → 拉历史会话 → 切会话看历史问答。
- * C2.1：接入真实 SSE，流式回答以「打字机」方式上屏（节流在 TypewriterBuffer 里）。
- * C2.2 / C2.3：AI 回答的 Markdown 渲染与出处抽屉在 ChatWorkspace + 组件里落地，
- *              本 store 只负责把 references / recordId 挂到消息上。
- * C2.6：点赞 / 点踩（setFeedback），反馈态随历史记录一起回填。
+ * 会话与消息 Store
  */
 export const useChatStore = defineStore('chat', () => {
   const sessions = ref<QaSession[]>([]);
@@ -21,10 +15,10 @@ export const useChatStore = defineStore('chat', () => {
   const messages = ref<ChatMessage[]>([]);
   const loadingSessions = ref(false);
   const loadingRecords = ref(false);
-  /** 历史问答加载失败原因（C3.1）；空串表示没有失败 */
   const recordsError = ref<string>('');
-  /** 是否有一次流式回答正在生成（驱动输入框禁用与「停止生成」按钮） */
   const streaming = ref(false);
+  /** 侧栏会话视图模式：'active' 活跃会话 | 'archived' 归档箱 */
+  const sessionTab = ref<'active' | 'archived'>('active');
 
   /**
    * SSE 客户端：整个 store 共用一个实例。
@@ -91,10 +85,11 @@ export const useChatStore = defineStore('chat', () => {
     const token = ++sessionsToken;
     loadingSessions.value = true;
     try {
-      const list = await listSessions(courseId);
-      if (token !== sessionsToken) return; // 已被更新的切课取代，连同后续 selectSession 一起跳过
+      const isArchived = sessionTab.value === 'archived' ? 1 : 0;
+      const list = await listSessions(courseId, isArchived);
+      if (token !== sessionsToken) return;
       sessions.value = list;
-      // 默认选中最近一条会话（列表按 createdAt 倒序，最新在最上）
+      // 默认选中最近一条会话（列表按 updatedAt 倒序，最新在最上）
       const first = list[0];
       if (first) {
         await selectSession(first.id);
@@ -106,6 +101,28 @@ export const useChatStore = defineStore('chat', () => {
         loadingSessions.value = false;
       }
     }
+  }
+
+  /** 删除会话 */
+  async function removeSession(sessionId: number, _courseId?: number): Promise<void> {
+    await apiDeleteSession(sessionId);
+    // 从本地列表中移除
+    sessions.value = sessions.value.filter((s) => s.id !== sessionId);
+    // 若删掉的是当前会话，新建会话
+    if (currentSessionId.value === sessionId) {
+      if (sessions.value.length > 0) {
+        await selectSession(sessions.value[0].id);
+      } else {
+        startNewSession();
+      }
+    }
+  }
+
+  /** 归档 / 取消归档会话 */
+  async function archiveSession(sessionId: number, courseId: number): Promise<void> {
+    await apiToggleArchiveSession(sessionId);
+    // 切换后，该会话脱离当前分类视图，重新拉取当前列表
+    await loadSessions(courseId);
   }
 
   /** 切换会话并加载其历史问答 */
@@ -169,15 +186,20 @@ export const useChatStore = defineStore('chat', () => {
    * references 挂到回答上 → message 增量交给打字机节流落地 → done 收尾并落 recordId。
    * sessionId 传当前值，为 0 时由后端懒创建会话（契约 4.2），真实 id 在 done 包里回传。
    */
-  function sendQuestion(question: string, courseId: number): void {
+  function sendQuestion(question: string, courseId: number, attachment?: AttachmentInfo): void {
     const text = question.trim();
     // 双保险：按钮已 disabled，这里再挡一次「回车连击」
-    if (!text || streaming.value) return;
+    if ((!text && !attachment) || streaming.value) return;
 
     const stamp = Date.now();
     const aiMessageId = `a-${stamp}`;
 
-    messages.value.push({ id: `q-${stamp}`, role: 'user', content: text });
+    messages.value.push({
+      id: `q-${stamp}`,
+      role: 'user',
+      content: text || (attachment ? `请查看附带的${attachment.fileType === 'image' ? '图片' : '文档'}` : ''),
+      attachment,
+    });
     messages.value.push({
       id: aiMessageId,
       role: 'ai',
@@ -206,9 +228,19 @@ export const useChatStore = defineStore('chat', () => {
       patchMessage(aiMessageId, { streaming: false });
     };
 
+    // 如果携带了文档或图片附件，将提取信息拼装进 Prompt
+    let promptQuestion = text;
+    if (attachment) {
+      if (attachment.extractedText) {
+        promptQuestion = `【附带文档参考内容（${attachment.fileName}）】：\n${attachment.extractedText}\n\n【学生核心问题】：\n${text || '请解读和总结上述文档'}`;
+      } else {
+        promptQuestion = `【附带${attachment.fileType === 'image' ? '图片' : '文档'}附件（${attachment.fileName}）】\n【学生问题】：\n${text || '请结合附件内容解答'}`;
+      }
+    }
+
     void sseClient.startStream({
       courseId,
-      question: text,
+      question: promptQuestion,
       sessionId: currentSessionId.value,
       callbacks: {
         onReferences: (references: SseReference[]) => {
@@ -323,9 +355,12 @@ export const useChatStore = defineStore('chat', () => {
     loadingRecords,
     recordsError,
     streaming,
+    sessionTab,
     loadSessions,
     selectSession,
     startNewSession,
+    removeSession,
+    archiveSession,
     sendQuestion,
     setFeedback,
     stopStream,

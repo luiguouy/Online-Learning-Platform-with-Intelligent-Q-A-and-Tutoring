@@ -2,12 +2,18 @@
   <div class="student-layout">
     <aside class="sidebar">
       <div class="sidebar-brand">
-        <span class="brand-title">智能答疑</span>
-        <span class="brand-sub">学生工作台</span>
+        <div class="brand-logo">
+          <el-icon :size="20"><ChatDotRound /></el-icon>
+        </div>
+        <div class="brand-text">
+          <span class="brand-title">智能学伴</span>
+          <span class="brand-subtitle">大学课程辅导平台</span>
+        </div>
       </div>
 
-      <!-- 课程切换：切换检索范围（courseId），学生可见全部课程 -->
+      <!-- 课程切换：卡片化选择 -->
       <div class="course-switch">
+        <div class="switch-label">当前学习课程</div>
         <el-select
           v-model="courseStore.currentCourseId"
           :loading="loadingCourses"
@@ -24,14 +30,29 @@
         </el-select>
       </div>
 
-      <!-- 历史会话栏 -->
-      <div class="session-head">
-        <span class="session-title">历史会话</span>
+      <!-- 历史会话栏：增加活跃 / 归档箱 Tab 切换 -->
+      <div class="session-section-header">
+        <div class="tab-group">
+          <button
+            class="tab-btn"
+            :class="{ active: chatStore.sessionTab === 'active' }"
+            @click="handleSwitchTab('active')"
+          >
+            活跃会话
+          </button>
+          <button
+            class="tab-btn"
+            :class="{ active: chatStore.sessionTab === 'archived' }"
+            @click="handleSwitchTab('archived')"
+          >
+            归档箱
+          </button>
+        </div>
         <el-button
-          text
           type="primary"
           :icon="Plus"
           size="small"
+          class="new-chat-btn"
           @click="handleNewChat"
         >
           新建
@@ -39,11 +60,6 @@
       </div>
 
       <el-scrollbar class="session-scroll">
-        <!--
-          三态（C3.1）：先判「确实失败了」，再判加载中，最后才是空。
-          顺序不能反 —— 失败时 loadingSessions 已经复位成 false，若先判空态，
-          断网会被显示成「该课程暂无历史会话」，把故障说成"没有数据"。
-        -->
         <StatePlaceholder
           v-if="loadError"
           state="error"
@@ -66,15 +82,64 @@
             :class="{ active: session.id === chatStore.currentSessionId }"
             @click="handleSelectSession(session.id)"
           >
-            <div class="session-text">{{ session.sessionTitle }}</div>
-            <div class="session-time">{{ formatTime(session.createdAt) }}</div>
+            <el-icon class="session-icon"><ChatDotRound /></el-icon>
+            <div class="session-info">
+              <div class="session-text" :title="session.sessionTitle">{{ session.sessionTitle }}</div>
+              <div class="session-time">{{ formatTime(session.createdAt) }}</div>
+            </div>
+            <!-- 悬浮操作栏：归档与删除 -->
+            <div class="session-actions" @click.stop>
+              <el-tooltip :content="chatStore.sessionTab === 'archived' ? '取消归档' : '归档会话'" placement="top">
+                <button class="action-btn" @click="handleArchiveSession(session.id)">
+                  <el-icon :size="13"><Box /></el-icon>
+                </button>
+              </el-tooltip>
+              <el-popconfirm
+                title="确定删除此会话及其问答记录？"
+                confirm-button-text="删除"
+                cancel-button-text="取消"
+                confirm-button-type="danger"
+                @confirm="handleDeleteSession(session.id)"
+              >
+                <template #reference>
+                  <button class="action-btn delete-btn">
+                    <el-icon :size="13"><Delete /></el-icon>
+                  </button>
+                </template>
+              </el-popconfirm>
+            </div>
           </li>
         </ul>
       </el-scrollbar>
 
       <div class="sidebar-footer">
-        <span class="user-name">{{ userStore.nickname || '未登录' }}</span>
-        <el-button text size="small" @click="handleLogout">退出</el-button>
+        <el-tooltip content="点击进入个人主页" placement="top">
+          <div
+            class="user-profile"
+            :class="{ 'is-active': isProfileActive }"
+            @click="goToProfile"
+          >
+            <div class="user-avatar">
+              <img
+                v-if="userStore.avatarUrl && !avatarError"
+                :src="userStore.avatarUrl"
+                alt="头像"
+                class="user-avatar-img"
+                @error="avatarError = true"
+              />
+              <span v-else>{{ userInitial }}</span>
+            </div>
+            <div class="user-meta">
+              <span class="user-name">{{ userStore.nickname || '未登录' }}</span>
+              <span class="user-role">{{ userStore.bio || '学生个人主页' }}</span>
+            </div>
+          </div>
+        </el-tooltip>
+        <el-tooltip content="退出登录" placement="top">
+          <button class="logout-icon-btn" @click="handleLogout">
+            <el-icon :size="16"><SwitchButton /></el-icon>
+          </button>
+        </el-tooltip>
       </div>
     </aside>
 
@@ -93,9 +158,9 @@
  * 右侧「课件出处溯源抽屉」（C2.3）、「知识点精解」（C2.5）、点赞点踩（C2.6）都在工作台侧实现。
  * C3.1：侧栏加载中 → 骨架屏；加载失败 → 友好文案 + 重试；空 → 空态组件。
  */
-import { computed, onMounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
-import { Plus } from '@element-plus/icons-vue';
+import { computed, onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { Plus, ChatDotRound, Delete, Box, SwitchButton } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
 
 import StatePlaceholder from '@/components/StatePlaceholder.vue';
@@ -105,33 +170,70 @@ import { useCourseStore } from '@/stores/courseStore';
 import { useUserStore } from '@/stores/userStore';
 
 const router = useRouter();
+const route = useRoute();
 const userStore = useUserStore();
 const courseStore = useCourseStore();
 const chatStore = useChatStore();
 
-/**
- * 课程下拉框自身的加载态。
- * 不复用 `courses.length === 0`：课程列表为空既可能是「还在加载」，也可能是
- * 「加载失败/确实没有课程」，两者靠数组长度无法区分，失败时下拉框会永久转圈。
- */
-const loadingCourses = ref(true);
+const isProfileActive = computed(() => route.path === '/student/profile');
+const avatarError = ref(false);
 
-/**
- * 侧栏加载失败原因（C3.1）。
- * 课程列表与会话列表共用一条：两者是同一条链路上的连续动作（会话要按 courseId 拉），
- * 分开渲染会出现「课程失败 + 会话空态」两条互相矛盾的提示，反而让人以为没数据。
- */
-const loadError = ref('');
-
-/** 侧栏空态文案：一门课都没有时不该说「该课程暂无历史会话」——根本没有"该课程" */
-const emptySessionsText = computed(() =>
-  courseStore.currentCourseId ? '该课程暂无历史会话' : '请先选择课程',
+watch(
+  () => userStore.avatarUrl,
+  () => {
+    avatarError.value = false;
+  },
 );
 
-/** 会话时间只显示到分钟，后端返回 ISO 字符串（如 2026-09-12T20:31:05） */
+function goToProfile(): void {
+  router.push('/student/profile');
+}
+
+const loadingCourses = ref(true);
+const loadError = ref('');
+
+const userInitial = computed(() => {
+  const name = userStore.nickname || '同';
+  return name.slice(0, 1).toUpperCase();
+});
+
+const emptySessionsText = computed(() => {
+  if (!courseStore.currentCourseId) return '请先选择课程';
+  return chatStore.sessionTab === 'archived' ? '归档箱暂无会话' : '该课程暂无历史会话';
+});
+
 function formatTime(value: string): string {
   if (!value) return '';
   return value.replace('T', ' ').slice(5, 16);
+}
+
+/** 切换活跃 / 归档 Tab */
+async function handleSwitchTab(tab: 'active' | 'archived'): Promise<void> {
+  if (chatStore.sessionTab === tab) return;
+  chatStore.sessionTab = tab;
+  if (courseStore.currentCourseId) {
+    await chatStore.loadSessions(courseStore.currentCourseId);
+  }
+}
+
+/** 删除会话 */
+async function handleDeleteSession(sessionId: number): Promise<void> {
+  try {
+    await chatStore.removeSession(sessionId, courseStore.currentCourseId);
+    ElMessage.success('会话已删除');
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '删除失败');
+  }
+}
+
+/** 归档 / 取消归档会话 */
+async function handleArchiveSession(sessionId: number): Promise<void> {
+  try {
+    await chatStore.archiveSession(sessionId, courseStore.currentCourseId);
+    ElMessage.success(chatStore.sessionTab === 'archived' ? '已恢复至活跃会话' : '已移入归档箱');
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '归档操作失败');
+  }
 }
 
 /**
@@ -217,6 +319,7 @@ async function handleLogout(): Promise<void> {
 
 onMounted(() => {
   void loadCourseAndSessions();
+  void userStore.fetchProfile();
 });
 </script>
 
@@ -225,57 +328,119 @@ onMounted(() => {
   display: flex;
   height: 100vh;
   overflow: hidden;
+  background-color: #f8fafc;
 }
 
 /* ------------------------------ 左侧栏 ------------------------------ */
 .sidebar {
   display: flex;
   flex-direction: column;
-  width: 260px;
+  width: 270px;
   flex-shrink: 0;
   border-right: 1px solid var(--app-border);
-  background: #ffffff;
+  background: var(--app-surface);
 }
 
 .sidebar-brand {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 18px 16px 12px;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 18px 16px;
+  border-bottom: 1px solid var(--app-border-subtle);
+}
+
+.brand-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.brand-text {
+  display: flex;
+  flex-direction: column;
 }
 
 .brand-title {
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 700;
-  color: #1e293b;
+  color: #0f172a;
+  letter-spacing: -0.2px;
 }
 
-.brand-sub {
-  font-size: 12px;
-  color: var(--app-text-muted);
+.brand-subtitle {
+  font-size: 11px;
+  font-weight: 500;
+  color: #64748b;
+  margin-top: 1px;
 }
 
 .course-switch {
-  padding: 0 16px 12px;
+  padding: 12px 14px;
+  background: #f8fafc;
+  margin: 12px 14px 4px;
+  border-radius: 8px;
+  border: 1px solid var(--app-border);
+}
+
+.switch-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 6px;
 }
 
 .course-select {
   width: 100%;
 }
 
-.session-head {
+/* Tab 分组与新建按钮 */
+.session-section-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 16px 6px;
-  border-top: 1px solid var(--app-border);
-  padding-top: 12px;
+  padding: 12px 14px 8px;
 }
 
-.session-title {
+.tab-group {
+  display: flex;
+  background: #f1f5f9;
+  padding: 2px;
+  border-radius: 6px;
+}
+
+.tab-btn {
+  border: none;
+  background: transparent;
+  padding: 4px 10px;
   font-size: 12px;
+  font-weight: 500;
+  color: #64748b;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tab-btn.active {
+  background: #ffffff;
+  color: #2563eb;
   font-weight: 600;
-  color: var(--app-text-muted);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.new-chat-btn {
+  border-radius: 6px;
+  font-weight: 500;
+  background: #2563eb;
+  border: none;
+}
+
+.new-chat-btn:hover {
+  background: #1d4ed8;
 }
 
 .session-scroll {
@@ -285,16 +450,20 @@ onMounted(() => {
 
 .session-list {
   margin: 0;
-  padding: 0 8px 8px;
+  padding: 4px 10px 10px;
   list-style: none;
 }
 
 .session-item {
-  padding: 8px 10px;
-  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  margin-bottom: 3px;
   border-radius: 8px;
   cursor: pointer;
-  transition: background-color 0.2s;
+  transition: all 0.15s ease;
+  position: relative;
 }
 
 .session-item:hover {
@@ -302,39 +471,176 @@ onMounted(() => {
 }
 
 .session-item.active {
-  background: var(--el-color-primary-light-9);
+  background: #eff6ff;
+  border-left: 3px solid #2563eb;
+}
+
+.session-icon {
+  color: #94a3b8;
+  flex-shrink: 0;
+  font-size: 15px;
+}
+
+.session-item.active .session-icon {
+  color: #2563eb;
+}
+
+.session-info {
+  flex: 1;
+  min-width: 0;
 }
 
 .session-text {
   font-size: 13px;
-  color: var(--app-text);
+  font-weight: 500;
+  color: #334155;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .session-item.active .session-text {
-  color: var(--el-color-primary);
+  color: #1d4ed8;
   font-weight: 600;
 }
 
 .session-time {
   margin-top: 2px;
   font-size: 11px;
-  color: var(--app-text-muted);
+  color: #94a3b8;
 }
 
+/* 悬浮操作图标条 */
+.session-actions {
+  display: none;
+  align-items: center;
+  gap: 4px;
+}
+
+.session-item:hover .session-actions {
+  display: flex;
+}
+
+.action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 4px;
+  background: #e2e8f0;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.action-btn:hover {
+  background: #cbd5e1;
+  color: #1e293b;
+}
+
+.action-btn.delete-btn:hover {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+/* 底部用户卡片 */
 .sidebar-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 16px;
-  border-top: 1px solid var(--app-border);
+  padding: 12px 14px;
+  border-top: 1px solid var(--app-border-subtle);
+  background: #fafafa;
+}
+
+.user-profile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  padding: 6px 8px;
+  border-radius: 8px;
+  transition: all 0.15s ease;
+  flex: 1;
+  min-width: 0;
+}
+
+.user-profile:hover {
+  background: #f1f5f9;
+}
+
+.user-profile.is-active {
+  background: #eff6ff;
+}
+
+.user-profile.is-active .user-name {
+  color: #2563eb;
+}
+
+.user-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #2563eb;
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 13px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.user-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.user-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .user-name {
   font-size: 13px;
-  color: var(--app-text);
+  font-weight: 600;
+  color: #1e293b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-role {
+  font-size: 11px;
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 120px;
+}
+
+.logout-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.logout-icon-btn:hover {
+  background: #fee2e2;
+  color: #dc2626;
 }
 
 /* ------------------------------ 主操作区 ------------------------------ */
@@ -343,5 +649,6 @@ onMounted(() => {
   min-width: 0;
   display: flex;
   flex-direction: column;
+  background: #f8fafc;
 }
 </style>
