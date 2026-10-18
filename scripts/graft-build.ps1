@@ -40,10 +40,30 @@ function ConvertTo-WslPath([string]$winPath) {
 
 $WslRoot = ConvertTo-WslPath $RepoRoot
 
-# 检查 WSL 与 graft 可用性
+# 检查 WSL 可用性与内部 graft 安装状态（Issue #70：分开两种故障提示）
+$wslCmd = Get-Command wsl.exe -ErrorAction SilentlyContinue
+$wslInstalled = $false
+if ($null -ne $wslCmd) {
+    try {
+        $null = wsl.exe --status 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            $wslInstalled = $true
+        }
+    } catch {
+        $wslInstalled = $false
+    }
+}
+
+if (-not $wslInstalled) {
+    Write-Warning "本机未检测到可用的 WSL（适用于 Linux 的 Windows 子系统）。"
+    Write-Warning "指引：请先在 Windows 安装 WSL，或按 PR 模板 §4 豁免标准提供「人工等价爆炸半径」。"
+    exit 1
+}
+
 $graftVer = (wsl bash -lc 'graft version 2>/dev/null' | Out-String).Trim()
-if ($LASTEXITCODE -ne -1 -and [string]::IsNullOrWhiteSpace($graftVer)) {
-    Write-Warning "WSL 内未检测到 graft，请先在 WSL 执行: npm i -g @nanonets/graft"
+if ([string]::IsNullOrWhiteSpace($graftVer)) {
+    Write-Warning "WSL 已就绪，但 WSL 内部未检测到 graft 工具。"
+    Write-Warning "指引：请在 WSL 终端内执行全局安装: npm i -g @nanonets/graft"
     exit 1
 }
 Write-Host "graft: $graftVer  |  repo(WSL): $WslRoot" -ForegroundColor DarkGray

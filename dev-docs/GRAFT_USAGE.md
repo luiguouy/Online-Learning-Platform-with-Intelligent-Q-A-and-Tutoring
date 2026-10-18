@@ -9,10 +9,15 @@
 
 ---
 
-## 0. 前置条件（一次性）
+## 0. 前置条件与无 WSL 豁免标准（一次性）
 
-- 本机已安装并可用 **WSL**，且 WSL 内已装 graft（`graft version` 能输出版本号）。
-- 若换机器 / graft 缺失，在 WSL 内执行：`npm i -g @nanonets/graft`。
+- **环境依赖**：本机已安装并可用 **WSL**（Windows 子系统），且 WSL 内已装 graft（`graft version` 能输出版本号）。
+- **缺失处置**：若未安装 WSL，运行 `scripts/graft-build.ps1` 会给出明确提示；若已有 WSL 但未装 graft，在 WSL 内执行：`npm i -g @nanonets/graft`。
+- **无 WSL 环境的豁免口径（PR 提交流程）**：
+  若开发机未安装 WSL，**不强制**安装，允许在 PR 模板 §4 中提交「**人工等价爆炸半径**」作为合格豁免形态（不得留空）：
+  - 格式需明确标注：`### 人工等价爆炸半径（无 WSL 豁免）`
+  - 清单格式：`变更符号 -> 生产调用方文件与行号 -> 传递影响分析`
+  - 判定标准：各调用点必须能够通过 `git grep` 或 IDE 全局静态搜索复现，Reviewer 据此核验后予以通过。
 
 ---
 
