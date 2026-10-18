@@ -68,6 +68,12 @@ rag:
     # max-tokens 4000 容纳思考模式 reasoning 预算；timeout 85s 必须 < 学生端 90s 硬超时
     max-tokens: 4000
     timeout-seconds: 85
+    # 【Issue #98】首字节看门狗与 emitter 超时（语义与 application.yml 一致）：
+    # timeout-seconds 只是 okhttp 的两次读取间隔上限，上游排队时不触发；
+    # first-token-timeout-seconds 是“多久没收到第一个 token 就报错结束本轮”，0=关闭。
+    # 本地调试若用的是排队严重的免费/低优先模型，可适当调大，但不建议取消。
+    first-token-timeout-seconds: 45
+    sse-timeout-seconds: 120
   # 向量模型说明：已采用内置 BGE-Small-ZH 本地模型 (纯本地CPU计算，零Token费用，无远程接口依赖)
   chroma:
     base-url: http://${CHROMA_HOST:localhost}:8000
