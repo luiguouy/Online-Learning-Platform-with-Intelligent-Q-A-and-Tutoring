@@ -40,6 +40,10 @@ app:
     # 主配置默认放行 localhost 任意端口（开发所需）。生产必须显式给出真实前端域名，
     # 且配合上面的凭据策略——不给默认值，漏配即启动失败。
     allowed-origin-patterns: ${CORS_ALLOWED_ORIGINS}
+  security:
+    # 生产是 HTTPS 部署，打开 HSTS 让浏览器后续强制走 https（防降级与首访劫持）。
+    # 不给 includeSubDomains：子域口径属于运维决策，不得在代码里替他们定。
+    hsts-enabled: true
 
 # ============================================================================
 # 接口文档：生产一律关闭

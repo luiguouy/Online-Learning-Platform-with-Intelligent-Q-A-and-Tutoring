@@ -131,6 +131,11 @@ app:
     login-per-ip-per-minute: ${RATE_LIMIT_LOGIN_PER_MIN:10}
     register-per-ip-per-ten-minutes: ${RATE_LIMIT_REGISTER_PER_10MIN:5}
     upload-per-user-per-minute: ${RATE_LIMIT_UPLOAD_PER_MIN:10}
+  # 安全响应头（SecurityHeadersFilter）。nosniff / X-Frame-Options / Referrer-Policy /
+  # Permissions-Policy 与 uploads 的 CSP 总是生效；只把 HSTS 放到开关里，
+  # 因为开发环境跑在 http 上，一发 HSTS 会让浏览器拒访问本机。
+  security:
+    hsts-enabled: ${HSTS_ENABLED:false}
 
 # ============================================================================
 # Knife4j 与 OpenAPI3 配置
