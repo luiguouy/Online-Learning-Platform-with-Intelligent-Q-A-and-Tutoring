@@ -3,6 +3,7 @@ package com.smartqa.platform.interceptor;
 import cn.dev33.satoken.stp.StpUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 
@@ -25,7 +26,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * <p><b>键的选择是这套限流的核心决策，改动前务必理解</b>：</p>
  * <ul>
  *   <li>登录 / 注册 → <b>客户端 IP</b>：此时还没有身份可用；</li>
- *   <li>上传（目前为课件）→ <b>登录用户 id</b>：全校学生常从同一 NAT 出口（机房一个 IP）出来，
+ *   <li>上传（课件 / 学生附件 / 头像）→ <b>登录用户 id</b>：全校学生常从同一 NAT 出口（机房一个 IP）出来，
  *       按 IP 限流会让整个机房共用一份额度、互相误伤，而威胁模型针对的是单个账号刷量。</li>
  * </ul>
  *
@@ -62,12 +63,21 @@ public class AuthRateLimitInterceptor implements HandlerInterceptor {
     private record Rule(int maxRequests, long windowMillis, KeyKind keyKind, String message) {
     }
 
+    /** 窗口数量超过该阈值时顺手清理过期条目，防止 Map 无界增长 */
+    private static final int CLEANUP_THRESHOLD = 10_000;
+
     /**
      * 限流登记表：精确路径 → 规则。
      *
-     * <p>阈值口径（写成可解释的数字，而不是"看起来安全"）：</p>
+     * <p>做成实例字段（而非 static 常量）的原因是<strong>阈值必须能按环境调</strong>：
+     * 集成测试的 {@code setUp} 会在同一分钟内反复登录同一个账号（本地实测一次 {@code mvn test}
+     * 就超出 10 次），写死常量会把自己的测试链路挡成 429。因此阈值走
+     * {@code app.rate-limit.*} 配置：生产用默认值，{@code application-test.yml} 给宽预算；
+     * 限流行为本身由 {@code AuthRateLimitInterceptorTest} 直接构造实例来覆盖。</p>
+     *
+     * <p>默认阈值口径（写成可解释的数字，而不是"看起来安全"）：</p>
      * <ul>
-     *   <li>登录 10 次/分钟/IP：正常人手动输错 3-4 次就要十几秒，10 次留足余量；
+     *   <li>登录 10 次/分钟/IP：正常人手动输错 3-4 次要十几秒，10 次留足余量；
      *       对脚本而言 10/min 又不足以在任何合理时间内穷举口令空间。</li>
      *   <li>注册 5 次/10 分钟/IP：真实场景是宿舍共享出口，一台设备注册 1-2 个账号，
      *       5 次已覆盖"一个宿舍一起开学注册"，同时把批量灌水速率压到 30/小时/IP。</li>
@@ -75,31 +85,35 @@ public class AuthRateLimitInterceptor implements HandlerInterceptor {
      *       但足以阻止用脚本反复写盘。</li>
      * </ul>
      */
-    private static final Map<String, Rule> RULES = new LinkedHashMap<>();
-
-    static {
-        RULES.put("/api/auth/login",
-                new Rule(10, 60_000L, KeyKind.IP, "登录尝试过于频繁，请稍后再试"));
-        RULES.put("/api/auth/register",
-                new Rule(5, 600_000L, KeyKind.IP, "注册过于频繁，请稍后再试"));
-        RULES.put("/api/teacher/docs/upload",
-                new Rule(10, 60_000L, KeyKind.USER, "上传过于频繁，请稍后再试"));
-        // 本表必须与 SaTokenConfigure 里的 addPathPatterns 逐项对应：
-        // 只写在表里而没注册路径 = 死配置；只注册而不在表里 = 预置规则不拦（因为 preHandle 查不到规则直接放过）。
-        // 学生附件（/api/qa/upload/attachment）与头像（/api/user/avatar）合入 dev 时，两边同时补上。
-    }
-
-    /** 窗口数量超过该阈值时顺手清理过期条目，防止 Map 无界增长 */
-    private static final int CLEANUP_THRESHOLD = 10_000;
+    private final Map<String, Rule> rules;
 
     /** key = 路径 + "|" + 身份（IP 或用户 id） */
     private final Map<String, Window> windows = new ConcurrentHashMap<>();
+
+    public AuthRateLimitInterceptor(
+            @Value("${app.rate-limit.login-per-ip-per-minute:10}") int loginPerIpPerMinute,
+            @Value("${app.rate-limit.register-per-ip-per-ten-minutes:5}") int registerPerIpPerTenMinutes,
+            @Value("${app.rate-limit.upload-per-user-per-minute:10}") int uploadPerUserPerMinute) {
+        this.rules = new LinkedHashMap<>();
+        rules.put("/api/auth/login",
+                new Rule(loginPerIpPerMinute, 60_000L, KeyKind.IP, "登录尝试过于频繁，请稍后再试"));
+        rules.put("/api/auth/register",
+                new Rule(registerPerIpPerTenMinutes, 600_000L, KeyKind.IP, "注册过于频繁，请稍后再试"));
+        // 三个写盘入口共用同一额度与文案
+        for (String uploadPath : new String[]{
+                "/api/teacher/docs/upload", "/api/qa/upload/attachment", "/api/user/avatar"}) {
+            rules.put(uploadPath, new Rule(uploadPerUserPerMinute, 60_000L, KeyKind.USER, "上传过于频繁，请稍后再试"));
+        }
+        // 本表必须与 SaTokenConfigure 里的 addPathPatterns 逐项对应：
+        // 只写在表里而没注册路径 = 死配置；只注册而不在表里 = 规则不生效（preHandle 查不到就放过）。
+        // 两者同改已写成 SEC-3 硬约束 4（dev-docs/SECURITY_DECISIONS.md）。
+    }
 
     @Override
     public boolean preHandle(HttpServletRequest request,
                              HttpServletResponse response,
                              Object handler) throws Exception {
-        Rule rule = RULES.get(requestPath(request));
+        Rule rule = rules.get(requestPath(request));
         if (rule == null) {
             // 本拦截器按精确路径注册，走到这里说明是不在登记表里的路径：直接放过，不影响任何现有接口
             return true;

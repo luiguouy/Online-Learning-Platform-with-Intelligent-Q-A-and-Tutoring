@@ -160,6 +160,38 @@ public class DocumentIngestionService {
     }
 
     /**
+     * 以三层安全上限解析文档、只返回纯文本（不切块、不向量化）。
+     *
+     * <p><b>为何存在</b>：学生问答附件线（{@code AttachmentController.extractTextFromDoc}）一开始
+     * 自己起了一套 Tika 解析，<b>只限输出字符数、没有输入字节上限也没有超时</b>，
+     * 等于在课件链路之外开了第二个不受守卫的解析入口（一份恶意文档就能长占 Tomcat 工作线程）。
+     * 上限机制只应有一份实现：需要解析文本就调本方法。</p>
+     *
+     * <p>预算直接复用课件配置（{@code rag.ingest.*}：输入 20MB / 提取 50 万字符 / 120s 超时），
+     * 不再另加一套“看起来更宽松”的参数 —— 否则上限会随时间各自漂移。</p>
+     *
+     * @param inputStream   文档输入流（由调用方负责关闭）
+     * @param fileName      仅用于错误信息定位
+     * @param maxOutputChars 返回前截断的字符数（面向大模型上下文的小预算）
+     * @return 提取并扁平化（连续空白合并为单空格）后的文本，可能为空串
+     * @throws RuntimeException 超出任一安全上限或文件不可解析（沿用课件链路的明确中文提示）
+     */
+    public String extractPlainTextWithLimits(InputStream inputStream, String fileName, int maxOutputChars) {
+        Document document = parseWithLimits(inputStream, fileName);
+        String text = document.text();
+        if (text == null || text.isBlank()) {
+            // 不抛异常：附件是“锦上添花”的上下文，提取不到内容不应阻断上传本身
+            log.warn("[RAG-Extract] 未提取到文本内容: {}", fileName);
+            return "";
+        }
+        String flattened = text.replaceAll("\\s+", " ").trim();
+        if (maxOutputChars > 0 && flattened.length() > maxOutputChars) {
+            return flattened.substring(0, maxOutputChars) + "...(后文省略)";
+        }
+        return flattened;
+    }
+
+    /**
      * 带三层安全上限的 Tika 解析：
      *   1. SizeLimitInputStream 限制输入读取字节（防解压炸弹）；
      *   2. BodyContentHandler(writeLimit) 限制提取文本字符数；

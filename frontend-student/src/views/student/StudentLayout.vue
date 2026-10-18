@@ -165,6 +165,7 @@ import { ElMessage } from 'element-plus';
 
 import StatePlaceholder from '@/components/StatePlaceholder.vue';
 import { listCourses } from '@/api/course';
+import { logout as logoutApi } from '@/api/auth';
 import { useChatStore } from '@/stores/chatStore';
 import { useCourseStore } from '@/stores/courseStore';
 import { useUserStore } from '@/stores/userStore';
@@ -310,11 +311,24 @@ async function handleSelectSession(sessionId: number): Promise<void> {
   void router.push('/student/chat');
 }
 
+/**
+ * 退出登录：先请服务端注销令牌，再**无条件**清本地会话并回登录页。
+ *
+ * 为何不能只 clearSession：sa-token 的 timeout 是 7 天，只删 localStorage 的话令牌在服务端仍有效。
+ * 为何要吞掉异常：服务端注销失败（网络异常 / 令牌已过期回 401）不能拦住用户退出，
+ * 否则点“退出”没反应，比留一个已失效的本地会话更糟（幂等约定见 api/auth.ts）。
+ */
 async function handleLogout(): Promise<void> {
-  userStore.clearSession();
-  chatStore.clear();
-  ElMessage.success('已退出登录');
-  await router.replace('/login');
+  try {
+    await logoutApi();
+  } catch {
+    // 故意忽略：无论接口成败都要完成本地退出
+  } finally {
+    userStore.clearSession();
+    chatStore.clear();
+    ElMessage.success('已退出登录');
+    await router.replace('/login');
+  }
 }
 
 onMounted(() => {

@@ -8,3 +8,13 @@ rag:
   chunk:
     # 覆盖主配置的 4，保证单课件测试的 references 恰为 1 条，事件序列可精确断言
     top-k: 1
+
+# 限流预算放宽：集成测试的 setUp 会在同一分钟内多次登录 student01/student02/teacher01，
+# 沿用生产默认 10 次/分钟/IP 会把测试前提本身挡成 429（本地实测：SseWiringIntegrationTest.setUp
+# 登录返回 429）。这里只放宽测试环境的预算，不改变限流代码路径（它仍然在跑）；
+# 429 行为由 AuthRateLimitInterceptorTest 直接构造实例、显式传阈值来验证。
+app:
+  rate-limit:
+    login-per-ip-per-minute: 100000
+    register-per-ip-per-ten-minutes: 100000
+    upload-per-user-per-minute: 100000
