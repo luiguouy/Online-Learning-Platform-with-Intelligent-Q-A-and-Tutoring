@@ -207,7 +207,51 @@ public class TeacherDocumentController {
             log.error("[#58] 删后复扫失败，可能存在残留切片需人工清理, docId={}", id, e);
         }
 
+        // 磁盘原件清理：逻辑删除只把记录置为 is_deleted=1，不删文件则教师每删一次课件
+        // 就在服务器上永久留一份原件（磁盘泄漏；向量与语义缓存上面都已清，磁盘是唯一漏点）。
+        // 采与 ③ 相同的降级策略：删除事实在 ② 已成立，清盘失败只告警不回 500。
+        deleteStoredFileQuietly(doc.getFilePath(), id);
+
         return Result.success(true);
+    }
+
+    /**
+     * 静默删除课件磁盘原件，并带一道<strong>目录边界护栏</strong>。
+     *
+     * <p>{@code file_path} 是从数据库读回来的值。不做边界校验就把“删除接口”递给一个
+     * 可控路径，等于把接口异化为<strong>任意文件删除原语</strong>（一行被污染/手工写入的
+     * 记录就能删掉 jar、配置或系统文件），所以只允许删配置指定上传目录<strong>子树内</strong>
+     * 的文件；目录外一概不删，只记告警日志。</p>
+     *
+     * <p>路径比较用 {@code getCanonicalPath()} 而非字符串前缀拼接：Windows 大小写不敏感、
+     * 存在 {@code ..} 与 8.3 短名等形式，字符串比较容易被绕过。</p>
+     */
+    private void deleteStoredFileQuietly(String filePath, Long docId) {
+        if (filePath == null || filePath.isBlank()) {
+            return;   // 文本直入库等路径可能无磁盘原件，不是错误
+        }
+        File target = new File(filePath);
+        if (!target.isFile()) {
+            return;   // 已清过或从未落盘
+        }
+        try {
+            String root = new File(uploadDir).getCanonicalPath();
+            String canonical = target.getCanonicalPath();
+            if (!canonical.startsWith(root + File.separator)) {
+                log.error("[磁盘清理] 拒绝删除上传目录之外的文件（防被当成任意文件删除接口）, "
+                        + "docId={}, filePath={}, uploadDir={}", docId, canonical, root);
+                return;
+            }
+            if (!target.delete()) {
+                log.warn("[磁盘清理] 原件删除失败（可能正被占用），需人工清理, docId={}, filePath={}", docId, canonical);
+            } else {
+                log.info("[磁盘清理] 课件磁盘原件已删除, docId={}, filePath={}", docId, canonical);
+            }
+        } catch (IOException e) {
+            log.warn("[磁盘清理] 路径解析失败，保留磁盘原件不删, docId={}, filePath={}", docId, filePath, e);
+        } catch (RuntimeException e) {
+            log.error("[磁盘清理] 删除磁盘原件出现意外异常, docId={}, filePath={}", docId, filePath, e);
+        }
     }
 
     @PostMapping("/{id}/reindex")
