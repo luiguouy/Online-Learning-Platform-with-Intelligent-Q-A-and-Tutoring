@@ -283,6 +283,49 @@ GET /api/teacher/qa/records?courseId=1&pageNum=1&pageSize=10&keyword=LRU
 
 ---
 
+### 3.6 退出登录
+
+```
+POST /api/auth/logout          Authorization: Bearer <token>
+```
+
+返回 `data` 为 `null`。**为什么必须调后端**：sa-token 的 `timeout` 是 7 天，只删 `localStorage`
+的话令牌在服务端仍有效七天（公用电脑 / 令牌被复制 / XSS 窃取后无从主动吊销）。
+前端请把它当**幂等**操作：接口失败（网络异常或已过期回 401）也要清本地并跳登录页，
+不能让“退出”按钮没反应。已接入：教师端与学生端的 `handleLogout`。
+
+### 3.7 学生端 · 个人资料与头像（成员 C）
+
+```
+GET  /api/user/profile         Authorization: Bearer <token>
+PUT  /api/user/profile         Authorization: Bearer <token>
+POST /api/user/avatar          Authorization: Bearer <token>   multipart: file
+```
+
+- `GET` 返回 `UserProfileVO`：`userId / username / nickname / role / avatarUrl / bio / createdAt / sessionCount / recordCount`。
+- `PUT` 入参 `UpdateProfileDTO`：`nickname` 1-30 字必填、`bio` ≤**150** 字、`avatarUrl` ≤255。
+  ⚠ 前端的 `ProfileView.vue` 规则必须与这三个阈值一致，**改一边同步改另一边**（历史上曾出现前端 100 / 后端 150 的分叉）。
+- 头像：仅 `jpg/jpeg/png/gif/webp`且 ≤5MB；落盘 `{uploadDir}/avatars/`，文件名为 `avatar_` + **完整 UUID** + 后缀。
+  返回的 `avatarUrl` 形如 `/uploads/avatars/xxx.png`，可直接给 `<img src>`（该子目录经静态映射公开可访，无需带 token）。
+
+### 3.8 学生端 · 问答附件上传（成员 C）
+
+```
+POST /api/qa/upload/attachment      Authorization: Bearer <token>   multipart: file
+```
+
+- 图片（`jpg/jpeg/png/gif/webp`）≤5MB；文档（`pdf/docx/md/txt`）≤**20MB**（与 `rag.ingest.max-file-bytes` 同值）。
+- 返回 `AttachmentVO`：`fileUrl`（`/uploads/attachments/{时间戳}_{完整UUID}_{原名}`）、`fileName`、`fileType`
+  （`image` / `doc`）、`fileSize`、`extractedText`。
+- `extractedText`：文档类附件经 Tika 提取的纯文本，**截断到 2000 字**供提问时作上下文；
+  提取与课件入库**共用同一套三层安全上限**（输入字节 / 提取字符 / 超时），提取失败或超限降级为空串而不影响上传本身。
+- 空文件 / 格式不符 / 超出大小闸均回 **400** 与可读文案（`BusinessException` 默认码就是 400）；
+  服务器落盘失败回 **500** 但只给通用提示，**不拼异常原文**（里面含服务器绝对路径），细节全进日志。
+
+> 本节三个接口与登录/注册/课件上传一同受**限流**保护（默认 10 次/分钟/用户，登录 10 次/分钟/IP、注册 5 次/10 分钟/IP）；
+> 命中阈值时 **HTTP 仍为 200**，body 里 `code=429`，文案“上传过于频繁，请稍后再试”。
+> 口径与两个限流拦截器的分工见 `dev-docs/SECURITY_DECISIONS.md` 的 SEC-3。
+
 ## 四、给成员 A 的冻结契约（Day 3 死线）
 
 ### 4.1 B 交付给 A 的两个方法
