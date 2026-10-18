@@ -1,5 +1,6 @@
 package com.smartqa.platform.dto;
 
+import com.smartqa.platform.validation.ValidNickname;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -9,6 +10,12 @@ import java.io.Serializable;
 
 /**
  * 修改个人资料请求 DTO。
+ *
+ * <p>昵称与注册时的「姓名」写的是同一列 {@code sys_user.nickname}，因此两处共用
+ * {@link ValidNickname}（1-30 字 + 结构卫生），不得一边 30 一边 50。</p>
+ *
+ * <p>{@code bio} 是多行文本，允许换行，因而不能复用昵称约束（控制字符规则会连 \n 一起拒），
+ * 本 DTO 对其只限长度；若将来要加同样的字符卫生规则，需单独写约束并允许换行。</p>
  */
 @Data
 @Schema(description = "修改个人资料请求")
@@ -16,9 +23,9 @@ public class UpdateProfileDTO implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
-    @Schema(description = "用户昵称", requiredMode = Schema.RequiredMode.REQUIRED, example = "小明同学")
+    @Schema(description = "用户昵称（与注册时的姓名同一约束）", requiredMode = Schema.RequiredMode.REQUIRED, example = "小明同学")
     @NotBlank(message = "昵称不能为空")
-    @Size(min = 1, max = 30, message = "昵称长度须在 1 到 30 个字符之间")
+    @ValidNickname
     private String nickname;
 
     @Schema(description = "头像地址", example = "/uploads/avatars/abc.png")

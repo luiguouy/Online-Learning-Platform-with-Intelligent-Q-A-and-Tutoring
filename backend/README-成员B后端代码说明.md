@@ -181,14 +181,20 @@ Content-Type: application/json
 POST /api/auth/register
 Content-Type: application/json
 
-{ "username": "student03", "password": "123456", "nickname": "李小华" }
+{ "username": "student03", "password": "Passw0rd91", "nickname": "李小华" }
 ```
 
 返回体与 3.1 登录**完全一致**（`data` 同为 `LoginVO`）：注册即登录，前端拿到 `token` 直接 `setSession` 进工作台，不需要二次登录。
 
 契约要点（改这个接口前先读）：
 - **不接受 `role` 入参**，服务端一律落 `STUDENT`。这是防越权设计：否则任何人注册个 TEACHER 就能进 `/api/teacher/**`。
-- 字段校验：账号 `^[a-zA-Z0-9_]{4,20}$`、密码 6-32 位、姓名必填且 ≤50 字符，不合规返回 400。
+- 字段校验（不合规返回 400）：
+  - 账号：`^[a-zA-Z0-9_]{4,20}$`；
+  - 密码：**8-32 位且同时含字母与数字**，并拒绝常见弱口令、整串同字符与等步长序列（如 `12345678`、`abcdefgh`）；
+  - 姓名：**1-30 字**（与改资料处同一约束，不再是 50），不含控制字符/零宽字符/尖括号，首尾不得带空白。
+  规则实现在 `validation/StrongPassword.java` 与 `validation/ValidNickname.java`，
+  前端 `frontend-student/src/utils/validators.ts` 与之同口径；**改阈值三处同改**。
+- ⚠ **登录接口不校验强度**，所以 `data.sql` 里的演示账号（口令 `123456`）仍可正常登录，只有新注册会被拦——演示前不要把注册与登录的口径混为一谈。
 - 用户名重复返回 400 `用户名已存在`。先 SELECT 查重给友好提示，并发穿透时由 `sys_user.username` 的 UNIQUE 约束兜底（捕获 `DuplicateKeyException` 后同一句提示），两层都要保留。
 - 密码 BCrypt 加密落库，任何响应都不回显密码。
 - 本接口在 `SaTokenConfigure` 的 `excludePathPatterns` 中显式放行，调用时**不需要**带 `Authorization` 头。
@@ -303,8 +309,8 @@ POST /api/user/avatar          Authorization: Bearer <token>   multipart: file
 ```
 
 - `GET` 返回 `UserProfileVO`：`userId / username / nickname / role / avatarUrl / bio / createdAt / sessionCount / recordCount`。
-- `PUT` 入参 `UpdateProfileDTO`：`nickname` 1-30 字必填、`bio` ≤**150** 字、`avatarUrl` ≤255。
-  ⚠ 前端的 `ProfileView.vue` 规则必须与这三个阈值一致，**改一边同步改另一边**（历史上曾出现前端 100 / 后端 150 的分叉）。
+- `PUT` 入参 `UpdateProfileDTO`：`nickname` **1-30 字且与注册同约束**（不含控制/零宽字符与尖括号）、`bio` ≤**150** 字、`avatarUrl` ≤255。
+  ⚠ 前端的 `ProfileView.vue` 与 `RegisterView.vue` 共用 `utils/validators.ts`，**改一边同步改另一边**（历史上曾出现注册允许 50 字、改资料只允许 30 字，导致长姓名账号注册后改不了资料）。
 - 头像：仅 `jpg/jpeg/png/gif/webp`且 ≤5MB；落盘 `{uploadDir}/avatars/`，文件名为 `avatar_` + **完整 UUID** + 后缀。
   返回的 `avatarUrl` 形如 `/uploads/avatars/xxx.png`，可直接给 `<img src>`（该子目录经静态映射公开可访，无需带 token）。
 

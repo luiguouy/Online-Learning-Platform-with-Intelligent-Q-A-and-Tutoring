@@ -19,7 +19,7 @@
           <el-input
             v-model="form.password"
             type="password"
-            placeholder="6-32 位密码"
+            placeholder="8-32 位，含字母与数字"
             :prefix-icon="Lock"
             show-password
           />
@@ -65,6 +65,9 @@ import type { FormInstance, FormRules } from 'element-plus';
 
 import { register } from '@/api/auth';
 import { useUserStore } from '@/stores/userStore';
+// 口令与姓名规则走共享模块，与后端 StrongPassword / ValidNickname 同一口径；
+// 改阈值需三处同改（后端约束、utils/validators.ts、backend/README §3.1.1）
+import { validateNickname, validatePassword } from '@/utils/validators';
 
 const router = useRouter();
 const userStore = useUserStore();
@@ -86,10 +89,13 @@ const rules: FormRules = {
     { required: true, message: '请输入账号', trigger: 'blur' },
     { pattern: /^[a-zA-Z0-9_]{4,20}$/, message: '账号须为 4-20 位字母、数字或下划线', trigger: 'blur' },
   ],
-  nickname: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
+  nickname: [
+    { required: true, message: '请输入姓名', trigger: 'blur' },
+    { validator: validateNickname, trigger: 'blur' },
+  ],
   password: [
     { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 6, max: 32, message: '密码长度须为 6-32 位', trigger: 'blur' },
+    { validator: validatePassword, trigger: 'blur' },
   ],
   confirmPassword: [
     { required: true, message: '请再次输入密码', trigger: 'blur' },

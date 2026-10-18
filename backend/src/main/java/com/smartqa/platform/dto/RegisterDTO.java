@@ -1,9 +1,10 @@
 package com.smartqa.platform.dto;
 
+import com.smartqa.platform.validation.StrongPassword;
+import com.smartqa.platform.validation.ValidNickname;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
-import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 import java.io.Serializable;
@@ -16,6 +17,10 @@ import java.io.Serializable;
  * 校验规则变更须同步前端 RegisterView.vue 的表单规则与 README §3.1.1。</p>
  *
  * <p>不含 role 字段：自助注册一律落 STUDENT，防止越权注册教师账号。</p>
+ *
+ * <p>口令与姓名的强度/卫生规则不写在本文案里，而是集中在
+ * {@link StrongPassword} 与 {@link ValidNickname}：改规则时要同时同步
+ * 前端 RegisterView.vue 的表单规则与 README §3.1.1，三处不得各自漂一套阈值。</p>
  *
  * @author 成员 C
  */
@@ -31,12 +36,12 @@ public class RegisterDTO implements Serializable {
     private String username;
 
     @NotBlank(message = "密码不能为空")
-    @Size(min = 6, max = 32, message = "密码长度须为 6-32 位")
-    @Schema(description = "密码（明文传输，服务端 BCrypt 加密落库）", example = "123456", requiredMode = Schema.RequiredMode.REQUIRED)
+    @StrongPassword
+    @Schema(description = "密码（明文传输，服务端 BCrypt 加密落库）：8-32 位且含字母与数字", example = "Passw0rd91", requiredMode = Schema.RequiredMode.REQUIRED)
     private String password;
 
     @NotBlank(message = "姓名不能为空")
-    @Size(max = 50, message = "姓名最长 50 个字符")
-    @Schema(description = "用户真实姓名", example = "李小华", requiredMode = Schema.RequiredMode.REQUIRED)
+    @ValidNickname
+    @Schema(description = "用户真实姓名（1-30 字，与改资料处同一约束）", example = "李小华", requiredMode = Schema.RequiredMode.REQUIRED)
     private String nickname;
 }
