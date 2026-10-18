@@ -59,23 +59,35 @@ public class QaSessionServiceImpl extends ServiceImpl<QaSessionMapper, QaSession
         return session.getId();
     }
 
+    @jakarta.annotation.Resource
+    private com.smartqa.platform.mapper.QaRecordMapper qaRecordMapper;
+
     @Override
     public List<SessionVO> listMySessions(Long courseId, Long userId) {
+        return listMySessions(courseId, userId, null);
+    }
+
+    @Override
+    public List<SessionVO> listMySessions(Long courseId, Long userId, Integer isArchived) {
         if (courseId == null) {
             throw new BusinessException("课程ID不能为空");
         }
         if (userId == null) {
             throw new BusinessException(401, "未取到登录用户，无法查询会话");
         }
-        List<QaSession> sessions = list(Wrappers.<QaSession>lambdaQuery()
+        var query = Wrappers.<QaSession>lambdaQuery()
                 .eq(QaSession::getCourseId, courseId)
-                .eq(QaSession::getUserId, userId)
-                .orderByDesc(QaSession::getUpdatedAt));
+                .eq(QaSession::getUserId, userId);
+        if (isArchived != null) {
+            query.eq(QaSession::getIsArchived, isArchived);
+        }
+        List<QaSession> sessions = list(query.orderByDesc(QaSession::getUpdatedAt));
         return sessions.stream()
                 .map(s -> SessionVO.builder()
                         .id(s.getId())
                         .courseId(s.getCourseId())
                         .sessionTitle(s.getSessionTitle())
+                        .isArchived(s.getIsArchived() == null ? 0 : s.getIsArchived())
                         .createdAt(s.getCreatedAt())
                         .updatedAt(s.getUpdatedAt())
                         .build())
@@ -120,6 +132,29 @@ public class QaSessionServiceImpl extends ServiceImpl<QaSessionMapper, QaSession
         update(Wrappers.<QaSession>lambdaUpdate()
                 .eq(QaSession::getId, sessionId)
                 .set(QaSession::getUpdatedAt, LocalDateTime.now()));
+    }
+
+    @Override
+    public void deleteSession(Long sessionId, Long userId) {
+        QaSession session = getOwnedSession(sessionId, userId);
+        // 软删除会话本身
+        removeById(session.getId());
+        // 级联软删除会话关联的所有问答记录
+        qaRecordMapper.delete(Wrappers.<com.smartqa.platform.entity.QaRecord>lambdaQuery()
+                .eq(com.smartqa.platform.entity.QaRecord::getSessionId, session.getId()));
+        log.info("会话已删除: sessionId={}, userId={}", sessionId, userId);
+    }
+
+    @Override
+    public int toggleArchive(Long sessionId, Long userId) {
+        QaSession session = getOwnedSession(sessionId, userId);
+        int current = session.getIsArchived() == null ? 0 : session.getIsArchived();
+        int target = current == 1 ? 0 : 1;
+        update(Wrappers.<QaSession>lambdaUpdate()
+                .eq(QaSession::getId, sessionId)
+                .set(QaSession::getIsArchived, target));
+        log.info("会话归档状态变更: sessionId={}, isArchived: {} -> {}", sessionId, current, target);
+        return target;
     }
 
     /** 标题取提问前 15 个字符；提问为空时回落到默认标题 */

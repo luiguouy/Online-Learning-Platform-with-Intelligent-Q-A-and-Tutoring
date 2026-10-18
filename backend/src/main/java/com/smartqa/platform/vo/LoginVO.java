@@ -41,4 +41,7 @@ public class LoginVO implements Serializable {
 
     @Schema(description = "头像地址")
     private String avatarUrl;
+
+    @Schema(description = "个性签名")
+    private String bio;
 }

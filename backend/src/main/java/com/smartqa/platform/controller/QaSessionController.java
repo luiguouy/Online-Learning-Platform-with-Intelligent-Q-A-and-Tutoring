@@ -38,9 +38,24 @@ public class QaSessionController {
     private final QaRecordService qaRecordService;
 
     @GetMapping("/sessions")
-    @Operation(summary = "会话历史列表（只返回当前学生自己的会话）")
-    public Result<List<SessionVO>> listSessions(@RequestParam("courseId") Long courseId) {
-        return Result.success(qaSessionService.listMySessions(courseId, StpUtil.getLoginIdAsLong()));
+    @Operation(summary = "会话历史列表（只返回当前学生自己的会话，支持归档状态筛选）")
+    public Result<List<SessionVO>> listSessions(@RequestParam("courseId") Long courseId,
+                                                @RequestParam(value = "isArchived", required = false) Integer isArchived) {
+        return Result.success(qaSessionService.listMySessions(courseId, StpUtil.getLoginIdAsLong(), isArchived));
+    }
+
+    @org.springframework.web.bind.annotation.DeleteMapping("/sessions/{id}")
+    @Operation(summary = "删除会话（逻辑软删除，并级联软删除问答记录）")
+    public Result<Boolean> deleteSession(@PathVariable("id") Long id) {
+        qaSessionService.deleteSession(id, StpUtil.getLoginIdAsLong());
+        return Result.success(true);
+    }
+
+    @org.springframework.web.bind.annotation.PutMapping("/sessions/{id}/archive")
+    @Operation(summary = "切换会话归档状态（已归档切换为未归档，未归档切换为已归档）")
+    public Result<Integer> toggleArchive(@PathVariable("id") Long id) {
+        int target = qaSessionService.toggleArchive(id, StpUtil.getLoginIdAsLong());
+        return Result.success(target);
     }
 
     @GetMapping("/records")

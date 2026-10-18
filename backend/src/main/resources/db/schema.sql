@@ -25,6 +25,9 @@ CREATE TABLE IF NOT EXISTS sys_user (
     nickname VARCHAR(50) NOT NULL COMMENT '用户真实姓名',
     role VARCHAR(20) NOT NULL DEFAULT 'STUDENT' COMMENT '角色: STUDENT-学生, TEACHER-教师',
     avatar_url VARCHAR(255) DEFAULT '' COMMENT '头像地址',
+    -- 个性签名。列宽 255，后端 UpdateProfileDTO 只校验 @Size(max=150)（余量 105）；前端 ProfileView 规则须与后端的 150 一致，不要各写一套。
+    -- 已有库补列：ALTER TABLE sys_user ADD COLUMN bio VARCHAR(255) NOT NULL DEFAULT '' COMMENT '个性签名';
+    bio VARCHAR(255) NOT NULL DEFAULT '' COMMENT '个性签名',
     is_deleted TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除: 0-正常, 1-删除',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'

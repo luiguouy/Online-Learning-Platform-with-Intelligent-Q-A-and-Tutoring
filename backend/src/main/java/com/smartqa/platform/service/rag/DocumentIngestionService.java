@@ -62,6 +62,9 @@ public class DocumentIngestionService {
     private final EmbeddingModel embeddingModel;
     private final EmbeddingStore<TextSegment> embeddingStore;
     private final RagConfigProperties ragProps;
+    private final MarkdownBreadcrumbSplitter markdownSplitter;
+    private final InMemoryBm25Service bm25Service;
+    private final SemanticCacheService semanticCacheService;
 
     /** 带解析上限的 Tika 解析器（每次 parse 时 supplier 新建组件，线程安全可复用） */
     private final DocumentParser parser;
@@ -76,9 +79,37 @@ public class DocumentIngestionService {
     public DocumentIngestionService(EmbeddingModel embeddingModel,
                                     EmbeddingStore<TextSegment> embeddingStore,
                                     RagConfigProperties ragProps) {
+        this(embeddingModel, embeddingStore, ragProps, new MarkdownBreadcrumbSplitter(), new InMemoryBm25Service(), new SemanticCacheService());
+    }
+
+    public DocumentIngestionService(EmbeddingModel embeddingModel,
+                                    EmbeddingStore<TextSegment> embeddingStore,
+                                    RagConfigProperties ragProps,
+                                    MarkdownBreadcrumbSplitter markdownSplitter) {
+        this(embeddingModel, embeddingStore, ragProps, markdownSplitter, new InMemoryBm25Service(), new SemanticCacheService());
+    }
+
+    public DocumentIngestionService(EmbeddingModel embeddingModel,
+                                    EmbeddingStore<TextSegment> embeddingStore,
+                                    RagConfigProperties ragProps,
+                                    MarkdownBreadcrumbSplitter markdownSplitter,
+                                    InMemoryBm25Service bm25Service) {
+        this(embeddingModel, embeddingStore, ragProps, markdownSplitter, bm25Service, new SemanticCacheService());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public DocumentIngestionService(EmbeddingModel embeddingModel,
+                                    EmbeddingStore<TextSegment> embeddingStore,
+                                    RagConfigProperties ragProps,
+                                    MarkdownBreadcrumbSplitter markdownSplitter,
+                                    InMemoryBm25Service bm25Service,
+                                    SemanticCacheService semanticCacheService) {
         this.embeddingModel = embeddingModel;
         this.embeddingStore = embeddingStore;
         this.ragProps = ragProps;
+        this.markdownSplitter = markdownSplitter;
+        this.bm25Service = bm25Service;
+        this.semanticCacheService = semanticCacheService;
 
         RagConfigProperties.Ingest limits = ragProps.getIngest();
         // BodyContentHandler(writeLimit)：Tika 写出文本超过上限即抛 WriteLimitReachedException，
@@ -315,14 +346,26 @@ public class DocumentIngestionService {
      *      chunkIndex 等差异化元数据；手动 split → embedAll → addAll 是等价正式 API。
      */
     private int splitEmbedAndStore(String text, String fileName, Long courseId, Long docId) {
-        Document document = Document.from(text);
-
         RagConfigProperties.Chunk chunkCfg = ragProps.getChunk();
-        DocumentSplitter splitter = DocumentSplitters.recursive(
-                chunkCfg.getSize(),
-                chunkCfg.getOverlap()
-        );
-        List<TextSegment> segments = splitter.split(document);
+        List<TextSegment> segments = null;
+
+        // 若为 Markdown 课件，优先尝试结构感知与层级面包屑切块
+        if (fileName != null && fileName.toLowerCase().endsWith(".md")) {
+            List<TextSegment> mdSegments = markdownSplitter.split(text, chunkCfg.getSize(), chunkCfg.getOverlap());
+            if (!mdSegments.isEmpty()) {
+                segments = mdSegments;
+            }
+        }
+
+        // 若非 Markdown 格式，或 Markdown 文本内无任何结构标题，回退至通用递归切块
+        if (segments == null || segments.isEmpty()) {
+            Document document = Document.from(text);
+            DocumentSplitter splitter = DocumentSplitters.recursive(
+                    chunkCfg.getSize(),
+                    chunkCfg.getOverlap()
+            );
+            segments = splitter.split(document);
+        }
 
         // 元数据增强：每个片段携带 课程/文档/文件名/序号 四要素
         for (int i = 0; i < segments.size(); i++) {
@@ -340,8 +383,11 @@ public class DocumentIngestionService {
 
         List<Embedding> embeddings = embeddingModel.embedAll(segments).content();
         embeddingStore.addAll(embeddings, segments);
+        bm25Service.addSegments(courseId, docId, segments);
+        semanticCacheService.invalidateCourse(courseId);
 
-        log.info("[RAG-Ingest] 向量入库完成，fileName={}, docId={}, 共 {} 个片段", fileName, docId, segments.size());
+        log.info("[RAG-Ingest] 向量与BM25入库完成，课件语义缓存已刷新，fileName={}, docId={}, 共 {} 个片段",
+                fileName, docId, segments.size());
         return segments.size();
     }
 
@@ -353,6 +399,7 @@ public class DocumentIngestionService {
      */
     public void removeDocumentVectors(Long docId) {
         embeddingStore.removeAll(new IsEqualTo("docId", String.valueOf(docId)));
-        log.info("[RAG-Ingest] 课件向量切块已级联清理, docId={}", docId);
+        bm25Service.removeByDocId(docId);
+        log.info("[RAG-Ingest] 课件向量与BM25索引已级联清理, docId={}", docId);
     }
 }

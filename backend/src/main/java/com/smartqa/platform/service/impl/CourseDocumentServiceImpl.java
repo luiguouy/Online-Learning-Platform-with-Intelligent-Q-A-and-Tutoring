@@ -82,4 +82,28 @@ public class CourseDocumentServiceImpl extends ServiceImpl<CourseDocumentMapper,
         updateById(update);
         log.warn("课件解析失败, docId={}, reason={}", docId, msg);
     }
+
+    @jakarta.annotation.Resource
+    private com.smartqa.platform.service.rag.DocumentIngestionService ingestionService;
+
+    @jakarta.annotation.Resource
+    private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+
+    @Override
+    public int reconcileDeletedDocumentVectors(int quietMinutes) {
+        java.time.LocalDateTime threshold = java.time.LocalDateTime.now().minusMinutes(Math.max(quietMinutes, 1));
+        String sql = "SELECT id FROM course_document WHERE is_deleted = 1 AND updated_at < ?";
+        List<Long> deletedDocIds = jdbcTemplate.queryForList(sql, Long.class, threshold);
+        int cleaned = 0;
+        for (Long docId : deletedDocIds) {
+            try {
+                ingestionService.removeDocumentVectors(docId);
+                cleaned++;
+            } catch (Exception e) {
+                log.error("[#62] 孤儿向量切片对账清理失败, docId={}", docId, e);
+            }
+        }
+        log.info("[#62] 孤儿向量切片对账完成, 扫描到已删除课件数={}, 成功清理数={}", deletedDocIds.size(), cleaned);
+        return cleaned;
+    }
 }

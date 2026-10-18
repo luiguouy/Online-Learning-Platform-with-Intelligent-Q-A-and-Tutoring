@@ -46,4 +46,17 @@ public class SaTokenConfigure implements WebMvcConfigurer {
         registry.addInterceptor(qaRateLimitInterceptor)
                 .addPathPatterns("/api/qa/chat/stream", "/api/knowledge/generate");
     }
+
+    @org.springframework.beans.factory.annotation.Value("${file.upload-dir}")
+    private String uploadDir;
+
+    @Override
+    public void addResourceHandlers(org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry registry) {
+        String cleanPath = uploadDir.replace("\\", "/");
+        if (!cleanPath.endsWith("/")) {
+            cleanPath += "/";
+        }
+        registry.addResourceHandler("/uploads/**")
+                .addResourceLocations("file:" + cleanPath);
+    }
 }

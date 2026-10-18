@@ -60,4 +60,16 @@ public interface CourseDocumentService extends IService<CourseDocument> {
      * @param errorMsg 失败原因，超长会被截断到列长度 500
      */
     void markFailed(Long docId, String errorMsg);
+
+    /**
+     * 对账清理孤儿向量切片（Issue #62 根治兜底）。
+     *
+     * <p>扫描表 {@code course_document} 中已逻辑删除（{@code is_deleted=1}）且
+     * 更新时间早于 {@code quietMinutes} 分钟前的记录，调用向量库清理对应切片。
+     * 使用时间阈值避开在途删除/并发切块窗口，防重新引入 #58 竞态。</p>
+     *
+     * @param quietMinutes 静默期（分钟），默认 10 分钟
+     * @return 成功执行清理的课件数量
+     */
+    int reconcileDeletedDocumentVectors(int quietMinutes);
 }

@@ -256,6 +256,20 @@ class SseWiringIntegrationTest {
                 .eq(QaRecord::getUserId, 3L)), "越权请求不得产生任何问答记录");
     }
 
+    @Test
+    @DisplayName("启发式教学模式(mode=tutor)：正常走流式推送与契约落库")
+    void testTutorModeStreaming() throws Exception {
+        String question = "请问页面置换算法怎么理解？";
+        String body = stream(question, 0L, "tutor");
+
+        List<String> events = sseEventNames(body);
+        assertEquals(List.of("references", "message", "message", "done"), events,
+                "Tutor 模式同样应满足 references → delta×N → done 契约，实际报文：" + body);
+
+        JsonNode done = jsonOfEvent(body, "done");
+        assertTrue(done.path("recordId").asLong() > 0);
+    }
+
     // ==================== 辅助 ====================
 
     /**
@@ -263,11 +277,16 @@ class SseWiringIntegrationTest {
      * 下不触发 asyncStarted，不能用 asyncDispatch），再取响应体。
      */
     private String stream(String question, long sessionId) throws Exception {
+        return stream(question, sessionId, "direct");
+    }
+
+    private String stream(String question, long sessionId, String mode) throws Exception {
         MvcResult result = mockMvc.perform(get("/api/qa/chat/stream")
                         .header("Authorization", "Bearer " + studentToken)
                         .param("courseId", String.valueOf(COURSE_ID))
                         .param("question", question)
-                        .param("sessionId", String.valueOf(sessionId)))
+                        .param("sessionId", String.valueOf(sessionId))
+                        .param("mode", mode))
                 .andReturn();
 
         // 异步流在 sseExecutor 线程执行，轮询响应体出现终止事件（done 或 error）

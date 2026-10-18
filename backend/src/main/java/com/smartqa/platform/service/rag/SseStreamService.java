@@ -4,9 +4,13 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartqa.platform.common.BusinessException;
 import com.smartqa.platform.config.RagConfigProperties;
+import com.smartqa.platform.entity.Course;
+import com.smartqa.platform.entity.QaRecord;
 import com.smartqa.platform.entity.QaSession;
+import com.smartqa.platform.service.CourseService;
 import com.smartqa.platform.service.QaRecordService;
 import com.smartqa.platform.service.QaSessionService;
+import org.springframework.util.StringUtils;
 import com.smartqa.platform.vo.SseReferenceVO;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.message.AiMessage;
@@ -31,8 +35,11 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
@@ -89,17 +96,39 @@ public class SseStreamService {
      * </p>
      */
     private static final String RAG_SYSTEM_PROMPT = """
-            你是一个专业的在线学习智能答疑助手。请根据以下课件内容回答学生的问题。
+            你是一个专业的在线学习智能答疑助手与学伴。当前学生正在学习《%s》课程（课程简介：%s）。
+            请根据以下课件内容，结合《%s》专业学科知识，深入、严谨、详尽且有条理地解答学生的问题。
 
             【课件相关内容】
             %s
 
-            【回答要求】
-            1. 优先基于上述课件内容进行作答，保持准确性
-            2. 若上述课件内容中未提及该问题的相关信息，你必须首句明确回答：“在当前课程课件中未找到该问题的明确说明”
-            3. 若课件内容不足以完整回答，可以补充学科常识，但必须显式标注【课外补充说明】，不得与课件内容混淆
-            4. 回答简洁清晰，适合学生理解
-            5. 使用中文回答
+            【回答要求与纪律】
+            1. 课件内容优先：若上述课件内容中包含该问题的相关信息，你必须优先充分依据课件内容进行精准作答，保持学科严肃性，并自然标注出处来源（例如：“根据本课程课件……”）。
+            2. 若上述课件内容中未提及该问题的相关信息：
+               - 你必须首句明确回答：“在当前课程课件中未找到该问题的明确说明”
+               - 紧接着，你【绝对不能拒绝回答、严禁敷衍推脱说无法说明或请联系教师】！你必须立刻显式标注【课外补充说明】，并调动《%s》的标准大学专业课程知识体系与核心原理，针对学生的具体提问给出完整、详尽、具体、结构化的解答！
+               - 例如当学生提问课程知识体系或学习主线时，哪怕课件中没有专门总结，也必须把《%s》的核心板块（如进程/线程管理、并发与同步死锁、内存管理与虚存、文件系统与存储、I/O系统等）完整细致地梳理出来。
+            3. 若课件内容仅包含部分信息不足以完整解答，可补充学科常识，但必须显式标注【课外补充说明】，不得与课件内容混淆，并确保回答内容充实、富有教学指导价值。
+            4. 善用 Markdown 格式排版（标题、加粗、分段、列表），逻辑清晰、层次分明，适合学生学习与掌握。
+            5. 全程使用中文回答。
+            """;
+
+    /**
+     * 启发式教学辅导模式系统提示词模板（苏格拉底式教学法）
+     */
+    private static final String TUTOR_SYSTEM_PROMPT = """
+            你是一个循循善诱、专业的计算机学科启发式辅导导师（Tutor Agent）。当前学生正在学习《%s》课程（课程简介：%s）。
+            请根据以下课件内容，结合《%s》专业学科知识，采用【苏格拉底启发式教学法】辅导学生。
+
+            【课件相关内容】
+            %s
+
+            【启发式辅导原则】
+            1. 严禁直接把最终终局答案全盘给齐，辅导的核心在于启发学生的思维推导过程
+            2. 第一步（知识定位）：若课件中有相关内容，明确指出该知识点在课件中的章节与核心背景；若上述课件内容中未提及该问题的相关信息，你必须首句明确回答：“在当前课程课件中未找到该问题的明确说明”，并结合《%s》专业知识建立引导框架
+            3. 第二步（搭建脚手架）：给出 1~2 个关键线索或铺垫性定义事实，引导学生建立认知连接
+            4. 第三步（递进提问）：提出 1~2 个启发性的关键递进问题，促使学生主动思考并推导核心结论
+            5. 全程使用亲切耐心的中文，鼓励学生继续回答或提问
             """;
 
     private final StreamingChatLanguageModel streamingChatModel;
@@ -107,37 +136,65 @@ public class SseStreamService {
     private final EmbeddingStore<TextSegment> embeddingStore;
     private final QaSessionService qaSessionService;
     private final QaRecordService qaRecordService;
+    private final CourseService courseService;
     private final RagConfigProperties ragProps;
     private final ObjectMapper objectMapper;
+    private final QueryCondensationService queryCondensationService;
+    private final InMemoryBm25Service bm25Service;
+    private final SemanticCacheService semanticCacheService;
+    private final ContextCompressorService contextCompressorService;
+    private final LexicalSemanticRerankerService rerankerService;
 
     public SseStreamService(StreamingChatLanguageModel streamingChatModel,
             EmbeddingModel embeddingModel,
             EmbeddingStore<TextSegment> embeddingStore,
             QaSessionService qaSessionService,
             QaRecordService qaRecordService,
+            CourseService courseService,
             RagConfigProperties ragProps,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            QueryCondensationService queryCondensationService,
+            InMemoryBm25Service bm25Service,
+            SemanticCacheService semanticCacheService,
+            ContextCompressorService contextCompressorService,
+            LexicalSemanticRerankerService rerankerService) {
         this.streamingChatModel = streamingChatModel;
         this.embeddingModel = embeddingModel;
         this.embeddingStore = embeddingStore;
         this.qaSessionService = qaSessionService;
         this.qaRecordService = qaRecordService;
+        this.courseService = courseService;
         this.ragProps = ragProps;
         this.objectMapper = objectMapper;
+        this.queryCondensationService = queryCondensationService;
+        this.bm25Service = bm25Service;
+        this.semanticCacheService = semanticCacheService;
+        this.contextCompressorService = contextCompressorService;
+        this.rerankerService = rerankerService;
     }
 
     /**
-     * 执行 RAG 流式问答，将结果按 4.2 契约逐事件推送给 SseEmitter
-     *
-     * @param emitter   SSE 输出通道（由 Controller 层创建并返回给前端）
-     * @param userId    提问学生 ID（请求线程捕获后传入，本方法运行在 sseExecutor 异步线程）
-     * @param courseId  课程 ID（用于检索过滤与会话绑定）
-     * @param question  用户问题
-     * @param sessionId 问答会话 ID；按契约传 0 或 null 时懒创建新会话
+     * 执行 RAG 流式问答（默认直答模式 direct）
      */
     @Async("sseExecutor")
     public void streamChat(SseEmitter emitter, Long userId, Long courseId, String question, Long sessionId) {
+        streamChat(emitter, userId, courseId, question, sessionId, "direct");
+    }
+
+    /**
+     * 执行 RAG 流式问答，支持指定模式（direct / tutor）
+     *
+     * @param emitter   SSE 输出通道
+     * @param userId    提问学生 ID
+     * @param courseId  课程 ID
+     * @param question  用户问题
+     * @param sessionId 问答会话 ID
+     * @param mode      答疑模式（direct: 直答模式; tutor: 启发式导师模式）
+     */
+    @Async("sseExecutor")
+    public void streamChat(SseEmitter emitter, Long userId, Long courseId, String question, Long sessionId, String mode) {
         final long startMillis = System.currentTimeMillis();
+        final boolean isTutorMode = "tutor".equalsIgnoreCase(mode);
 
         // ── Step 0：会话懒创建 / 归属校验（B 的 qa_session 持久化） ──────────────
         final Long actualSessionId;
@@ -163,43 +220,145 @@ public class SseStreamService {
         final StringBuilder answerBuilder = new StringBuilder();
 
         try {
-            // ── Step 1：问题向量化 ──────────────────────────────────────────────
-            Embedding questionEmbedding = embeddingModel.embed(question).content();
+            // 获取当前课程上下文信息（用于为模型提供课程背景认知）
+            Course currentCourse = null;
+            try {
+                currentCourse = courseService.getById(courseId);
+            } catch (Exception e) {
+                log.warn("[SSE] 获取课程上下文信息失败: courseId={}, msg={}", courseId, e.getMessage());
+            }
+            final String courseName = (currentCourse != null && StringUtils.hasText(currentCourse.getCourseName()))
+                    ? currentCourse.getCourseName().trim()
+                    : "计算机专业课程";
+            final String courseDesc = (currentCourse != null && StringUtils.hasText(currentCourse.getDescription()))
+                    ? currentCourse.getDescription().trim()
+                    : "学科核心专业知识与核心技能";
 
-            // ── Step 2：向量检索 Top-K 相关课件片段（courseId 租户级过滤，防跨课程串内容） ──
+            // ── Step 0.5：多轮对话指代消解与改写 (Query Condensation) ─────────
+            // 仅在复用已有会话时尝试获取历史问答进行指代消解改写；首问直接使用原问题（零开销）
+            String retrievalQuery = question;
+            if (sessionId != null && sessionId > 0L) {
+                try {
+                    List<QaRecord> history = qaRecordService.listBySession(actualSessionId, userId);
+                    retrievalQuery = queryCondensationService.condenseQuery(history, question);
+                } catch (Exception e) {
+                    log.warn("[SSE] 获取会话历史或改写Query失败，降级使用原问题: sessionId={}, msg={}", actualSessionId, e.getMessage());
+                }
+            }
+            final String finalQuery = retrievalQuery;
+
+            // ── Step 1：问题向量化（使用指代消解后的 retrievalQuery 进行精准召回） ──────
+            Embedding questionEmbedding = embeddingModel.embed(finalQuery).content();
+
+            // ── Step 1.5：高频问答语义缓存拦截 (Semantic Cache) ─────────────────
+            // 仅在直答模式(direct)下拦截高频语义缓存；tutor 启发辅导模式走实时引导流
+            float[] queryVector = questionEmbedding.vector();
+            if (!isTutorMode) {
+                Optional<SemanticCacheService.CacheEntry> cachedOpt = semanticCacheService.lookup(
+                        courseId, queryVector, SemanticCacheService.DEFAULT_SIMILARITY_THRESHOLD);
+
+                if (cachedOpt.isPresent()) {
+                    SemanticCacheService.CacheEntry cached = cachedOpt.get();
+                    log.info("[SSE] 命中高频问答语义缓存，直接推流: sessionId={}, 匹配原题='{}'",
+                            actualSessionId, cached.getQuestion());
+
+                    sendJsonEvent(emitter, clientGone, "references", cached.getReferences());
+                    sendJsonEvent(emitter, clientGone, "message", Map.of("delta", cached.getAnswer()));
+
+                    Long recordId;
+                    try {
+                        long latencyMs = System.currentTimeMillis() - startMillis;
+                        recordId = qaRecordService.saveStreamingRecordAs(
+                                userId, courseId, actualSessionId,
+                                question, cached.getAnswer(), cached.getReferences(), latencyMs);
+                    } catch (Exception e) {
+                        log.error("[SSE] 缓存问答记录落库失败，sessionId={}", actualSessionId, e);
+                        sendErrorQuietly(emitter, ERROR_CODE_PERSIST, "问答记录保存失败，请稍后重试");
+                        emitter.complete();
+                        return;
+                    }
+
+                    Map<String, Object> donePayload = Map.of(
+                            "recordId", recordId,
+                            "sessionId", actualSessionId,
+                            "finishReason", "cache",
+                            "totalTokens", 0);
+                    sendJsonEvent(emitter, clientGone, "done", donePayload);
+                    emitter.complete();
+                    log.info("[SSE] 语义缓存回答推流完毕，recordId={}, sessionId={}", recordId, actualSessionId);
+                    return;
+                }
+            }
+
+            // ── Step 2：双路混合初筛与跨特征重排序 (Dense + BM25 -> RRF -> Reranker) ──
             RagConfigProperties.Chunk chunkCfg = ragProps.getChunk();
+            int candidateTopK = Math.max(chunkCfg.getTopK() * 2, 6);
             Filter courseFilter = new IsEqualTo("courseId", String.valueOf(courseId));
             EmbeddingSearchRequest searchRequest = EmbeddingSearchRequest.builder()
                     .queryEmbedding(questionEmbedding)
                     .filter(courseFilter)
-                    .maxResults(chunkCfg.getTopK())
+                    .maxResults(candidateTopK)
                     .minScore(chunkCfg.getSimilarityThreshold())
                     .build();
 
             EmbeddingSearchResult<TextSegment> searchResult = embeddingStore.search(searchRequest);
-            List<SseReferenceVO> references = toReferences(searchResult.matches());
+            List<EmbeddingMatch<TextSegment>> denseMatches = searchResult.matches();
+            List<InMemoryBm25Service.Bm25Match> bm25Matches = bm25Service.search(courseId, retrievalQuery, candidateTopK);
 
-            String context = searchResult.matches().stream()
-                    .map(match -> match.embedded().text())
+            // RRF 融合初筛候选集
+            List<TextSegment> candidateSegments = bm25Service.fuseRrf(denseMatches, bm25Matches, candidateTopK);
+
+            // 收集 Dense 与 BM25 得分映射
+            Map<String, Double> denseScoreMap = new HashMap<>();
+            if (denseMatches != null) {
+                for (EmbeddingMatch<TextSegment> m : denseMatches) {
+                    denseScoreMap.put(makeSegmentKey(m.embedded()), m.score());
+                }
+            }
+            Map<String, Double> bm25ScoreMap = new HashMap<>();
+            if (bm25Matches != null) {
+                for (InMemoryBm25Service.Bm25Match bm : bm25Matches) {
+                    bm25ScoreMap.put(makeSegmentKey(bm.getSegment()), bm.getScore());
+                }
+            }
+
+            // 本地词汇-语义跨特征重排序 (Top-K 精炼)
+            LexicalSemanticRerankerService.RerankResult rerankResult = rerankerService.rerank(
+                    finalQuery, candidateSegments, denseScoreMap, bm25ScoreMap, chunkCfg.getTopK());
+            List<TextSegment> finalSegments = rerankResult.rerankedSegments();
+            Map<String, Double> finalScoreMap = new HashMap<>(denseScoreMap);
+            finalScoreMap.putAll(rerankResult.finalScoreMap());
+
+            List<SseReferenceVO> references = toReferencesFromSegments(finalSegments, finalScoreMap);
+
+            String rawContext = finalSegments.stream()
+                    .map(TextSegment::text)
                     .collect(Collectors.joining("\n\n---\n\n"));
 
+            String context = contextCompressorService.compress(rawContext, finalQuery);
+
             if (context.isBlank()) {
-                // 【#57 三】空检索分支同样受契约约束：旧文案直接引导模型「基于学科常识作答」，
-                // 缺「首句明确说明未找到」；而这正是演示 Q5 防幻觉拒答最依赖的分支
-                // （相似度阈值 0.70 未命中时走这里，与「命中但片段不足」是两件事）。
-                context = """
-                        （本次检索未命中任何课件片段。你必须首句明确回答“在当前课程课件中未找到该问题的明确说明”，\
-                        随后可基于学科常识作答，但必须显式标注【课外补充说明】，不得与课件内容混淆）""";
-                log.warn("[SSE] 检索结果为空，sessionId={}, courseId={}", actualSessionId, courseId);
+                // 【#57 三】空检索分支契约约束与答疑能力强化：
+                // 1. 保留首句未找到声明契约（防幻觉）；
+                // 2. 结合课程学科知识深入解答，标注【课外补充说明】，绝不拒绝回答或敷衍推脱。
+                context = String.format("""
+                        （本次检索未命中任何课件片段。若上述课件内容中未提及该问题的相关信息，你必须首句明确回答“在当前课程课件中未找到该问题的明确说明”，\
+                        随后必须显式标注【课外补充说明】，并紧接着结合《%s》专业学科知识与教学大纲，深入、详尽、具体地全面解答学生的问题，严禁推脱或拒绝回答）""", courseName);
+                log.info("[SSE] 检索结果未命中课件片段，结合课程专业知识解答: courseName={}, question={}, sessionId={}", courseName, finalQuery, actualSessionId);
             } else {
-                log.info("[SSE] 检索到 {} 个相关片段，sessionId={}", references.size(), actualSessionId);
+                log.info("[SSE] 检索到 {} 个相关片段，压缩后上下文长度={}, sessionId={}", references.size(), context.length(), actualSessionId);
             }
 
             // 契约 4.2：references 为流上第一个数据包，先出处后正文
             sendJsonEvent(emitter, clientGone, "references", references);
 
-            // ── Step 3：拼装 RAG 提示词 ─────────────────────────────────────────
-            String systemPrompt = String.format(RAG_SYSTEM_PROMPT, context);
+            // ── Step 3：拼装 RAG / Tutor 提示词 ──────────────────────────────────
+            String systemPrompt;
+            if (isTutorMode) {
+                systemPrompt = String.format(TUTOR_SYSTEM_PROMPT, courseName, courseDesc, courseName, context, courseName);
+            } else {
+                systemPrompt = String.format(RAG_SYSTEM_PROMPT, courseName, courseDesc, courseName, context, courseName, courseName);
+            }
             UserMessage userMessage = UserMessage.from(systemPrompt + "\n\n【学生问题】\n" + question);
 
             // ── Step 4：流式调用大模型，逐 Token 推送 SSE ───────────────────────
@@ -260,6 +419,13 @@ public class SseStreamService {
                             "totalTokens", totalTokens);
                     sendJsonEvent(emitter, clientGone, "done", donePayload);
                     emitter.complete();
+
+                    // 回填高频语义缓存（仅 direct 直答模式且回答有效、未触发防幻觉拒答时回填）
+                    if (!isTutorMode && answerBuilder.length() > 0 && !answerBuilder.toString().contains("在当前课程课件中未找到该问题的明确说明")) {
+                        semanticCacheService.put(courseId, finalQuery, queryVector,
+                                answerBuilder.toString(), references);
+                    }
+
                     log.info("[SSE] 流式回答完毕，recordId={}, sessionId={}, clientGone={}",
                             recordId, actualSessionId, clientGone.get());
                 }
@@ -277,6 +443,37 @@ public class SseStreamService {
             sendErrorQuietly(emitter, ERROR_CODE_INTERNAL, "服务内部异常，请稍后重试");
             emitter.complete();
         }
+    }
+
+    /** 混合检索命中 → 契约 SseReferenceVO 列表 */
+    private List<SseReferenceVO> toReferencesFromSegments(List<TextSegment> segments, Map<String, Double> scoreMap) {
+        List<SseReferenceVO> list = new ArrayList<>(segments.size());
+        for (TextSegment segment : segments) {
+            Map<String, Object> meta = segment.metadata().toMap();
+            String key = makeSegmentKey(segment);
+            Double score = scoreMap.getOrDefault(key, 0.85);
+            list.add(SseReferenceVO.builder()
+                    .docId(parseLongOrNull(meta.get("docId")))
+                    .fileName(meta.get("fileName") == null ? null : String.valueOf(meta.get("fileName")))
+                    .chunkIndex(parseIntOrNull(meta.get("chunkIndex")))
+                    .score(score)
+                    .snippet(abbreviate(segment.text()))
+                    .build());
+        }
+        return list;
+    }
+
+    private static String makeSegmentKey(TextSegment segment) {
+        if (segment == null) {
+            return "";
+        }
+        Map<String, Object> meta = segment.metadata() != null ? segment.metadata().toMap() : Collections.emptyMap();
+        Object docId = meta.get("docId");
+        Object chunkIndex = meta.get("chunkIndex");
+        if (docId != null && chunkIndex != null) {
+            return docId + "_" + chunkIndex;
+        }
+        return String.valueOf(segment.text().hashCode());
     }
 
     /** 检索命中 → 契约 SseReferenceVO 列表（字段名与 4.2 / B 的 groundingReferences 快照一致） */

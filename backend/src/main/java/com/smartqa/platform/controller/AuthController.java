@@ -56,6 +56,7 @@ public class AuthController {
                 .nickname(user.getNickname())
                 .role(user.getRole())
                 .avatarUrl(user.getAvatarUrl())
+                .bio(user.getBio())
                 .build();
 
         return Result.success(vo);
