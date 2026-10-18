@@ -96,6 +96,13 @@ rag:
     # 届时文案会按 LENGTH 分支给出可行动提示。三处同改：application.yml / RagConfigProperties 默认值 / templates/application-example.yml
     max-tokens: 4000
     timeout-seconds: 85
+    # 【Issue #98】两个流式预算。timeout-seconds 落到 okhttp 是 read-timeout（两次读取之间），
+    # 上游“排队但一直有字节”时不会触发，所以必须另设一道整体首字节上限：
+    # 45 秒内没收到第一个 token 就主动下发 event:error 结束本轮（0 = 关闭看门狗）。
+    # sse-timeout-seconds 是 emitter 整体超时（旧值写死 120s），超时时也会补一个 error 事件，
+    # 不再静默断流。约束：first-token < sse-timeout，且 sse-timeout > timeout-seconds。
+    first-token-timeout-seconds: ${AI_FIRST_TOKEN_TIMEOUT_SECONDS:45}
+    sse-timeout-seconds: ${AI_SSE_TIMEOUT_SECONDS:120}
   # 向量模型说明：已采用内置 BGE-Small-ZH 本地模型 (纯本地CPU计算，零Token费用，无远程接口依赖)
   chroma:
     base-url: http://${CHROMA_HOST:localhost}:8000

@@ -8,6 +8,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.StringUtils;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -44,6 +45,13 @@ public class SseChatController {
      * 与 SseStreamService 及成员 A 的加固口径一致：5003=服务繁忙（队列打满）。
      */
     private static final int ERROR_CODE_BUSY = 5003;
+
+    /**
+     * 【Issue #98】超时兜底的错误码，复用 5001（模型异常）而不新造码：
+     * 对前端而言“超时”与“模型异常”同属“模型本轮没给出结果”，处理分支一致，
+     * 新增一个前端不认识的码只会多一个坑。
+     */
+    private static final int ERROR_CODE_LLM = 5001;
 
     /**
      * 提问文本长度上限（字符数）。
@@ -96,6 +104,13 @@ public class SseChatController {
     private final ObjectMapper objectMapper;
     private final com.smartqa.platform.service.rag.CourseSyllabusService courseSyllabusService;
 
+    /**
+     * 【Issue #98】SSE 整体超时（秒），对应 {@code rag.llm.sse-timeout-seconds}。
+     * 用字段注入而不改构造器签名，避免为一个小配置扰动已有调用链与测试。
+     */
+    @Value("${rag.llm.sse-timeout-seconds:120}")
+    private long sseTimeoutSeconds;
+
     public SseChatController(SseStreamService sseStreamService,
                              ObjectMapper objectMapper,
                              com.smartqa.platform.service.rag.CourseSyllabusService courseSyllabusService) {
@@ -132,8 +147,21 @@ public class SseChatController {
         // 传给 sseExecutor 异步线程里的 streamChat —— 它拿不到登录态。
         long userId = StpUtil.getLoginIdAsLong();
 
-        // 超时时间 120 秒（与 application.yml rag.llm.timeout-seconds 保持裕量）
-        SseEmitter emitter = new SseEmitter(120_000L);
+        // 超时时间来自配置 rag.llm.sse-timeout-seconds（旧代码写死 120_000L，
+        // 既无法在测试里覆盖超时分支，也让它与首字节看门狗的先后关系变成隐性约束）。
+        long sseTimeoutMillis = sseTimeoutSeconds * 1000L;
+        SseEmitter emitter = new SseEmitter(sseTimeoutMillis);
+
+        // 【Issue #98】以前没有注册任何 onTimeout 回调：emitter 一到点就静默结束，
+        // 前端 EventSource 只看到流断开，拿不到失败原因也无法提示用户重试。
+        // 正常卡死场景下首字节看门狗（预算更小）会先跑；这里是最后一道保险，
+        // 覆盖“已开始推流后又卡住、导致永远发不出 done”这种情况。
+        emitter.onTimeout(() -> {
+            log.error("[SSE][#98] emitter 超时（{}ms）仍未完成，主动下发 error 收尾, userId={}",
+                    sseTimeoutMillis, userId);
+            sendErrorEvent(emitter, ERROR_CODE_LLM,
+                    "答疑响应超时，请重试；若持续超时说明大模型侧排队严重，可改用非思考模式模型或提高预算");
+        });
 
         // 【边界】空 / 纯空白提问在进入异步链路前拦下，否则会一路走到
         // embeddingModel.embed()，抛 IllegalArgumentException: text cannot be null or blank，

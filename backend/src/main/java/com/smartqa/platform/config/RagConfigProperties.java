@@ -45,6 +45,24 @@ public class RagConfigProperties {
          * 90s 硬超时（#42）；与 yml/模板两处保持一致。
          */
         private Integer timeoutSeconds = 85;
+        /**
+         * 【Issue #98】流式问答的「首字节」预算（秒），0 = 关闭看门狗。
+         *
+         * <p>为什么不是 {@code timeoutSeconds} 就够了：那个值落到 okhttp 是
+         * <b>read-timeout（两次读取之间）</b>，上游「排队但一直有字节」时永不触发，
+         * 于是 onError/onComplete 都得不到调用，学生只能干等到 SseEmitter 超时。
+         * 本值是整体上限：到点仍没收到第一个 token 就主动下发 error 事件结束本轮。</p>
+         *
+         * <p>默认 45 取在“思考模式起步慢但合理”与“学生不该干等转圈超过 45s”之间，
+         * 且必须小于 {@code sseTimeoutSeconds}（否则看门狗没机会先跑）。
+         * 与 application.yml / templates 两处保持一致，改动须三处同改。</p>
+         */
+        private Integer firstTokenTimeoutSeconds = 45;
+        /**
+         * 【Issue #98】SseEmitter 的整体超时（秒），取代旧代码里写死的 120_000L。
+         * 必须同时大于 {@code timeoutSeconds}（给正常长回答留足够余量）与 {@code firstTokenTimeoutSeconds}。
+         */
+        private Integer sseTimeoutSeconds = 120;
 
         // Getter / Setter
         public String getBaseUrl() { return baseUrl; }
@@ -64,6 +82,16 @@ public class RagConfigProperties {
 
         public Integer getTimeoutSeconds() { return timeoutSeconds; }
         public void setTimeoutSeconds(Integer timeoutSeconds) { this.timeoutSeconds = timeoutSeconds; }
+
+        public Integer getFirstTokenTimeoutSeconds() { return firstTokenTimeoutSeconds; }
+        public void setFirstTokenTimeoutSeconds(Integer firstTokenTimeoutSeconds) {
+            this.firstTokenTimeoutSeconds = firstTokenTimeoutSeconds;
+        }
+
+        public Integer getSseTimeoutSeconds() { return sseTimeoutSeconds; }
+        public void setSseTimeoutSeconds(Integer sseTimeoutSeconds) {
+            this.sseTimeoutSeconds = sseTimeoutSeconds;
+        }
     }
 
     public static class Chroma {

@@ -40,6 +40,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
@@ -76,6 +80,19 @@ public class SseStreamService {
 
     /** 出处包 snippet 截断长度，防止单包过大 */
     private static final int SNIPPET_MAX_CHARS = 200;
+
+    /**
+     * 【Issue #98】首字节看门狗专用调度线程池。
+     *
+     * <p>单线程足够：它只做“到点还没收到第一个 token 就报错”这一件事，本身不阻塞。
+     * 必须为守护线程，否则 JVM 关闭时会被这个非 daemon 线程拖住。</p>
+     */
+    private static final ScheduledExecutorService FIRST_TOKEN_WATCHDOG =
+            Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "sse-first-token-watchdog");
+                t.setDaemon(true);
+                return t;
+            });
 
     /**
      * RAG 系统提示词模板。
@@ -362,16 +379,53 @@ public class SseStreamService {
             UserMessage userMessage = UserMessage.from(systemPrompt + "\n\n【学生问题】\n" + question);
 
             // ── Step 4：流式调用大模型，逐 Token 推送 SSE ───────────────────────
+            //
+            // 【Issue #98】为何需要首字节看门狗：{@code rag.llm.timeout-seconds} 落到 okhttp
+            // 是 <b>read-timeout（两次读取之间）</b>，不是整体调用 deadline。上游“排队但不断流”
+            // 时它不会触发，于是 onNext/onComplete/onError 一个都不来，用户只能干等到
+            // SseEmitter 超时（表现为无限转圈且无任何提示，与 #83 确立的“失败必须可行动”相背）。
+            // 这里加一道整体首字节上限：N 秒内没收到第一个 token 就主动下发 error 并结束本轮。
+            //
+            // 诚实声明：langchain4j 0.35 的流式接口没有 cancel，所以无法中止已发出的
+            // 上游请求（它会继续跑完并计费）。本看门狗保证的是“用户不再干等”，不是“请求已取消”。
+            int firstTokenBudgetSeconds = ragProps.getLlm().getFirstTokenTimeoutSeconds();
+            final AtomicBoolean firstTokenSeen = new AtomicBoolean(false);
+            final AtomicBoolean streamFinished = new AtomicBoolean(false);
+            final ScheduledFuture<?> firstTokenWatchdog = firstTokenBudgetSeconds > 0
+                    ? FIRST_TOKEN_WATCHDOG.schedule(() -> {
+                        if (firstTokenSeen.get() || streamFinished.get()
+                                || !streamFinished.compareAndSet(false, true)) {
+                            return;
+                        }
+                        log.error("[SSE][#98] 首字节超时（{} 秒内模型未返回任何 token），主动结束本轮, "
+                                        + "sessionId={}, mode={}",
+                                firstTokenBudgetSeconds, actualSessionId, isTutorMode ? "tutor" : "direct");
+                        // 标记客户端已断以抑制后续（模型真的醒了之后）的 delta/done 推送
+                        clientGone.set(true);
+                        sendJsonEvent(emitter, new AtomicBoolean(false), "error", Map.of(
+                                "errorCode", ERROR_CODE_LLM,
+                                "message", "模型响应超时（" + firstTokenBudgetSeconds
+                                        + " 秒内未返回任何内容），本轮已主动结束；请稍后重试，或精简提问后换一种问法"));
+                        completeQuietly(emitter);
+                    }, firstTokenBudgetSeconds, TimeUnit.SECONDS)
+                    : null;
+
             streamingChatModel.generate(List.of(userMessage), new StreamingResponseHandler<AiMessage>() {
 
                 @Override
                 public void onNext(String token) {
+                    // 首个 token 一到就卸掉看门狗：后续 token 慢不算卡死
+                    firstTokenSeen.set(true);
+                    cancelQuietly(firstTokenWatchdog);
                     answerBuilder.append(token);
                     sendJsonEvent(emitter, clientGone, "message", Map.of("delta", token));
                 }
 
                 @Override
                 public void onComplete(Response<AiMessage> response) {
+                    firstTokenSeen.set(true);
+                    cancelQuietly(firstTokenWatchdog);
+                    streamFinished.set(true);
                     // ── Step 5：先落库拿 recordId，再发 done 包（契约要求 done 必含 recordId） ──
                     Long recordId;
                     try {
@@ -432,9 +486,11 @@ public class SseStreamService {
 
                 @Override
                 public void onError(Throwable error) {
+                    cancelQuietly(firstTokenWatchdog);
+                    streamFinished.set(true);
                     log.error("[SSE] 大模型调用异常，sessionId={}", actualSessionId, error);
                     sendErrorQuietly(emitter, ERROR_CODE_LLM, "大模型调用异常，请稍后重试");
-                    emitter.complete();
+                    completeQuietly(emitter);
                 }
             });
 
@@ -518,6 +574,28 @@ public class SseStreamService {
     private void sendErrorQuietly(SseEmitter emitter, int errorCode, String message) {
         sendJsonEvent(emitter, new AtomicBoolean(false), "error",
                 Map.of("errorCode", errorCode, "message", message));
+    }
+
+    /**
+     * 幂等收尾。
+     *
+     * <p>【Issue #98】加了首字节看门狗后，“看门狗已 complete”与“模型迟到的 onComplete 再 complete”
+     * 会竞态；Spring 的 {@code ResponseBodyEmitter.complete()} 对已完成的对象再调会抛
+     * {@code IllegalStateException}，从 okhttp 回调线程抛出会污染日志，并使同一方法内后续逻辑被跳过。</p>
+     */
+    private void completeQuietly(SseEmitter emitter) {
+        try {
+            emitter.complete();
+        } catch (IllegalStateException | IllegalArgumentException e) {
+            log.debug("[SSE] emitter 已完成，忽略重复 complete: {}", e.getMessage());
+        }
+    }
+
+    /** 取消看门狗任务（不中断正在执行的那次，避免与它竞态收尾） */
+    private void cancelQuietly(ScheduledFuture<?> task) {
+        if (task != null) {
+            task.cancel(false);
+        }
     }
 
     private static String abbreviate(String text) {
