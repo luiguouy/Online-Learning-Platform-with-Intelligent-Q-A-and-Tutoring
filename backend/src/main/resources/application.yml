@@ -4,20 +4,27 @@ server:
   # 提问长度上限（与 SseChatController.MAX_QUESTION_LENGTH 配套，勿单独改）
   #
   # 背景：SSE 接口 GET /api/qa/chat/stream 把 question 放在 query string（契约冻结为 GET）。
-  # Tomcat 在 Http11InputBuffer.parseRequestLine 处对「请求行 + 请求头」做长度校验，
-  # 超限直接抛 IllegalArgumentException: Request header is too large，
-  # 由容器返回 431/400，**请求根本进不到 Controller**，前端 EventSource 只看到无信息失败。
+  # Tomcat 在 Http11InputBuffer.fill() / parseHeaders() 处做长度校验（比较 byteBuffer 位置与
+  # headerBufferSize；parseRequestLine 自身不含该校验，请求行与请求头共用同一字节预算），
+  # 超限抛 IllegalArgumentException: Request header is too large（键 iib.requestheadertoolarge.error），
+  # 容器直接返回 HTTP 400，**请求根本进不到 Controller**，前端 EventSource 只看到无信息失败。
   #
-  # 【实测数据（二分逼近，本机 Tomcat 10.1）】
-  #   - 不配本项（Tomcat 默认）：请求行上限 ≈ 8056 字节（约 8KB）
-  #   - 配 max-http-request-header-size: 64KB：请求行上限 ≈ 16370 字节（约 16KB）
-  # 结论：本项**确实**会抬高请求行上限（此前误判为"无效"，已纠正）；
-  #       实测上限约为配置值的 1/4 而非等值——Tomcat 对该缓冲的分配并非简单等于配置值，
-  #       因此**不能**按 64KB 反推可用提问长度，必须以实测值为准。
+  # 【实测数据：原始 socket 二分逼近 + 精确记账；本机 Tomcat 10.1 / Spring Boot 3.3.5】
+  #   计数口径 = 「请求行 + 所有请求头 + 各行 CRLF + 结束空行」的总字节数
+  #   - 不配本项（Spring Boot 默认 8KB）→ 上限 8192 字节（填充头 8068B 通过 / 8069B 拒绝）
+  #   - 配 64KB                        → 上限 65536 字节（填充头 65412 通过 / 65413 拒绝）
+  # 结论：
+  #   1) 上限**恰好等于配置值（1:1）**。此前注释写的「≈8056 / ≈16370 字节」「约为配置值的
+  #      1/4」是测量口径错误（把"请求行"与"请求行+请求头"混为一谈），已由实测推翻；
+  #   2) 超限返回 **HTTP 400**，不是 431；
+  #   3) 所以本项**不是可选项而是前提**：删掉本行，上限掉回 8192 字节，实测中文提问超过
+  #      **888 字**（8189 字节通过 / 889 字 8198 字节被拒）就会被容器以 HTTP 400 直接拒掉，
+  #      远低于业务上限 1600 字 —— 即"提问太长应走 event:error 友好提示"这条保障会退化成
+  #      "请求进不到 Controller 的无信息失败"。**本项与 MAX_QUESTION_LENGTH 配套，不可单独删改。**
   #
-  # 由此确定业务上限 MAX_QUESTION_LENGTH = 1600 字：
-  #   1600 字 × 约 9 字节/字（中文 URL 编码）= 14400 字节 < 实测 16370 字节，留约 2KB 余量。
-  # 这样"提问太长"会走 event:error {errorCode:4000} 友好返回，而不是被协议层断连。
+  # 余量：1600 字 × 约 9 字节/字（中文 URL 编码）≈ 14400 字节，仅占 64KB 预算的 22%，
+  #       协议层余量充足。故业务上限的定位是**产品级输入约束 + 友好的 event:error 提示**，
+  #       而不是"防止被协议层断连"（在 64KB 配置下不会发生）。
   # ==========================================================================
   max-http-request-header-size: 64KB
   servlet:
@@ -35,6 +42,9 @@ spring:
     # UnsupportedEncodingException，导致所有查询失败。Connector/J 8.0.13+ 自动把 UTF-8 映射为 utf8mb4。
     url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DB:smart_qa}?useUnicode=true&characterEncoding=UTF-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: ${MYSQL_USER:root}
+    # 【默认值 123456 仅供本地与 CI】本项是开发便利默认值：.env.example 里 MYSQL_PASSWORD 默认被注释掉，
+    # CI 则在 .github/workflows/ci.yml 里显式注入同值。**生产不得沿用本文件**，必须激活 prod profile
+    #（见 application-prod.yml）：那边不给默认值，漏设 MYSQL_PASSWORD 直接启动失败。
     password: ${MYSQL_PASSWORD:123456}
     hikari:
       maximum-pool-size: 20
@@ -79,12 +89,26 @@ rag:
     api-key: ${AI_API_KEY:sk-placeholder}
     chat-model: ${AI_CHAT_MODEL:deepseek-chat}    # 支持 deepseek-chat、qwen-plus 等
     temperature: 0.2
-    max-tokens: 1500
-    timeout-seconds: 60
+    # 【#83 选项②】1500 → 4000：思考模式下 reasoning 实测可达 ~1500 token 会吃满旧预算致正文为空；
+    # 4000 = 最坏思考量 + 精解正文(~800) + 余量。timeout 60 → 85：输出预算抬高后生成时长同步上升，
+    # 必须小于学生端知识点请求的 90s 硬超时并留缓冲（#42 H2），否则前端先断连、后端错报超时。
+    # 缓解而非根治：0.35.0 无法从代码侧关闭思考模式（见 #85 §四）；极端长思考仍可能占满，
+    # 届时文案会按 LENGTH 分支给出可行动提示。三处同改：application.yml / RagConfigProperties 默认值 / templates/application-example.yml
+    max-tokens: 4000
+    timeout-seconds: 85
+    # 【Issue #98】两个流式预算。timeout-seconds 落到 okhttp 是 read-timeout（两次读取之间），
+    # 上游“排队但一直有字节”时不会触发，所以必须另设一道整体首字节上限：
+    # 45 秒内没收到第一个 token 就主动下发 event:error 结束本轮（0 = 关闭看门狗）。
+    # sse-timeout-seconds 是 emitter 整体超时（旧值写死 120s），超时时也会补一个 error 事件，
+    # 不再静默断流。约束：first-token < sse-timeout，且 sse-timeout > timeout-seconds。
+    first-token-timeout-seconds: ${AI_FIRST_TOKEN_TIMEOUT_SECONDS:45}
+    sse-timeout-seconds: ${AI_SSE_TIMEOUT_SECONDS:120}
   # 向量模型说明：已采用内置 BGE-Small-ZH 本地模型 (纯本地CPU计算，零Token费用，无远程接口依赖)
   chroma:
     base-url: http://${CHROMA_HOST:localhost}:8000
     collection-name: smart_qa_course_docs
+    # 【#65 迁移通道】仅当同名 collection 已存在但本地 uuid 缓存丢失时手工注入；常规场景留空
+    collection-id: ${RAG_CHROMA_COLLECTION_ID:}
   chunk:
     size: 400
     overlap: 50
@@ -103,12 +127,29 @@ file:
 app:
   cors:
     # 允许跨域的前端来源（逗号分隔，Ant 风格、支持端口通配）。
-    # 默认仅放行本机 dev；生产须显式改为真实前端域名，例如：
+    # 默认仅放行本机 dev；**生产必须激活 prod profile**，其中不给默认值、必须显式给真实域名：
     #   app.cors.allowed-origin-patterns=https://smartqa.example.com
     allowed-origin-patterns: ${CORS_ALLOWED_ORIGINS:http://localhost:*,http://127.0.0.1:*}
+  # 匿名入口与写盘接口限流（AuthRateLimitInterceptor）。
+  # 阈值为生产默认值；集成测试会在同一分钟内反复登录，application-test.yml 里给宽预算
+  #（限流行为本身由 AuthRateLimitInterceptorTest 直接构造实例覆盖，不依赖本处配置）。
+  # 口径与键选择依据见 dev-docs/SECURITY_DECISIONS.md 的 SEC-3，不得随意抬高到失去防护意义的量级。
+  rate-limit:
+    login-per-ip-per-minute: ${RATE_LIMIT_LOGIN_PER_MIN:10}
+    register-per-ip-per-ten-minutes: ${RATE_LIMIT_REGISTER_PER_10MIN:5}
+    upload-per-user-per-minute: ${RATE_LIMIT_UPLOAD_PER_MIN:10}
+  # 安全响应头（SecurityHeadersFilter）。nosniff / X-Frame-Options / Referrer-Policy /
+  # Permissions-Policy 与 uploads 的 CSP 总是生效；只把 HSTS 放到开关里，
+  # 因为开发环境跑在 http 上，一发 HSTS 会让浏览器拒访问本机。
+  security:
+    hsts-enabled: ${HSTS_ENABLED:false}
 
 # ============================================================================
 # Knife4j 与 OpenAPI3 配置
+#
+# 【安全边界】文档与鉴权白名单的关系容易误解：SaTokenConfigure 放行了 /doc.html 与
+# /v3/api-docs/**，所以“生产关文档”不能靠鉴权兜底，只能从源头禁用。默认 true 只适用于开发；
+# prod profile 会把下面三项全置 false 并额外开 knife4j.production 做双保险。
 # ============================================================================
 springdoc:
   api-docs:

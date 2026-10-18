@@ -8,10 +8,10 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.StringUtils;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.RejectedExecutionException;
 
@@ -47,38 +47,76 @@ public class SseChatController {
     private static final int ERROR_CODE_BUSY = 5003;
 
     /**
-     * 提问文本长度上限（字符数，按中文估算）。
+     * 【Issue #98】超时兜底的错误码，复用 5001（模型异常）而不新造码：
+     * 对前端而言“超时”与“模型异常”同属“模型本轮没给出结果”，处理分支一致，
+     * 新增一个前端不认识的码只会多一个坑。
+     */
+    private static final int ERROR_CODE_LLM = 5001;
+
+    /**
+     * 提问文本长度上限（字符数）。
      *
-     * <p><b>这个值由 Tomcat 的请求行长度上限反推得到，不是随手写的。</b>
-     * 契约把 question 放在 GET query string，Tomcat 在
-     * {@code Http11InputBuffer.parseRequestLine} 处对「请求行 + 请求头」做长度校验，
-     * 超限的请求<b>根本进不到本方法</b>，容器直接返回 431/400，前端 EventSource
+     * <p><b>本值与 {@code application.yml} 的 {@code server.max-http-request-header-size}
+     * 是配套的，不能单独改。</b>契约把 question 放在 GET query string，Tomcat 在
+     * {@code Http11InputBuffer.fill()} 与 {@code parseHeaders()} 两处比较 {@code byteBuffer}
+     * 的位置与 {@code headerBufferSize}（请求行与请求头共用同一字节预算，故请求行也计入；
+     * {@code parseRequestLine} 自身不含该校验 —— 已反编译 tomcat-embed-core 10.1.31 核实），
+     * 超限抛 {@code IllegalArgumentException}（键 {@code iib.requestheadertoolarge.error}）：
+     * 请求<b>根本进不到本方法</b>，容器直接返回 HTTP 400，前端 EventSource
      * 只能看到一个没有任何信息的失败。</p>
      *
-     * <p>实测（二分逼近）本机 Tomcat 10.1 的请求行上限：
-     * 默认约 8056 字节；配置 {@code server.max-http-request-header-size: 64KB} 后约 16370 字节。
-     * 中文 URL 编码后约 9 字节/字，故 1600 字 ≈ 14400 字节 &lt; 16370，留约 2KB 余量。</p>
+     * <p>实测（原始 socket 二分 + 精确记账；Tomcat 10.1 / Spring Boot 3.3.5）：
+     * 该上限<b>恰好等于 {@code max-http-request-header-size} 的字节值（1:1）</b>，
+     * 计数口径为「请求行 + 所有请求头 + 各行 CRLF + 结束空行」之和——默认 8KB 时 8192 字节，
+     * 配 64KB 时 65536 字节；<b>超限返回 HTTP 400，不是 431</b>。
+     * 配 64KB 下本值 1600 字（中文 ≈14400 字节）仅占预算 22%，协议层余量充足。</p>
      *
-     * <p>⚠️ 本值与 {@code application.yml} 的 {@code max-http-request-header-size} 是配套的：
-     * 若去掉那项配置，上限会掉回 8056 字节，本值必须同步下调，否则超长提问仍会被协议层断连。</p>
+     * <p>⚠️ 真正的耦合点在<b>下限</b>：若删掉那项配置，上限掉回 8192 字节，
+     * 实测中文提问<b>超过 888 字</b>（8189 字节通过 / 889 字 8198 字节被拒）即被容器
+     * 以 HTTP 400 拒掉、进不到本方法，远低于本值 1600。
+     * 也就是说"超长提问走 event:error 友好返回"这条保障，依赖 64KB 那项配置成立。</p>
+     *
+     * <p><b>无需再做 UTF-8 字节级校验</b>（2026-09-30 实测定论，<b>勿按旧数据加回</b>）：
+     * 本闸的输入上界<b>只取决于字符数、与字符组成无关</b> —— 见下段，length() 不超过 1600 时
+     * UTF-8 字节恒 ≤ 4800，URL 编码后 ≤ 14400，占 65536 预算的 22%，离天花板尚远；
+     * 且超限返回 HTTP 400 而非 431。</p>
+     *
+     * <p>曾并存过一个 {@code MAX_QUESTION_UTF8_BYTES=5300} 字节闸，已按审查裁定整条移除。
+     * 移除的<b>真正理由</b>是它<b>不可达（死代码）</b>：{@code String.length()} 计的是
+     * UTF-16 码元，而每个 UTF-16 码元最多产出 3 个 UTF-8 字节（ASCII = 1；3 字节 CJK = 3；
+     * 4 字节 emoji 是代理对，4 字节 / 2 码元 = 2）。穷举<b>全部 1,112,064 个有效码位</b>
+     * （代理区 U+D800–U+DFFF 的 2,048 个不是合法标量值、不能单独编码，已排除：1,114,112 − 2,048），
+     * (码元数, 字节数) 只有 (1,1)/(1,2)/(1,3)/(2,4) 四种 —— 各桶计数
+     * 128 + 1,920 + 61,440 + 1,048,576 = 1,112,064，与总数自洽 —— 比值上限恰为 3）。
+     * 故 length() 不超过 1600 时，UTF-8 字节最多 3 x 1600 = 4800，恒小于 5300 ——
+     * 字节分支<b>永远不可能在字符分支为 false 时单独成立</b>，它对可观测行为零贡献，
+     * 任何测试都无法区分它在与不在。
+     * （附：审查意见里"1600 个 4 字节字符会先于字符闸触发"的算例不成立 ——
+     * 1600 个 emoji 的 length() 是 3200，拦下它的是本字符闸。此处以实测算术为准。）</p>
+     *
+     * <p>遗留的语义落差已定案、另单追踪（<b>Issue #69</b>）：因 length() 计 UTF-16 码元，
+     * 用户视觉上的"1600 个 emoji"会被报"最多 1600 字"。审查裁定本轮<b>不改计数口径</b>
+     * ——纯 CJK 场景三者完全一致、零影响，只做"让提示不再误导"一层。</p>
      */
     private static final int MAX_QUESTION_LENGTH = 1600;
 
-    /**
-     * 【审查 L2】提问的 UTF-8 字节上限：URL 编码后每个 UTF-8 字节占 3 字节（%XX）。
-     * 9 字节/字的估算只对 3 字节字符（常规中文）成立；emoji / CJK 扩展 B 区是
-     * 4 字节字符（编码后 12 字节/字），1600 字 = 19200 字节 > 实测协议上限 16370，
-     * 仅按字符数拦会让这类请求在 Tomcat 协议层被无信息 431 掉，绕过友好提示。
-     * 5300 UTF-8 字节 ≈ 15900 编码字节 + 路径参数余量，常规 1600 字中文（4800 字节）不受影响。
-     */
-    private static final int MAX_QUESTION_UTF8_BYTES = 5300;
-
     private final SseStreamService sseStreamService;
     private final ObjectMapper objectMapper;
+    private final com.smartqa.platform.service.rag.CourseSyllabusService courseSyllabusService;
 
-    public SseChatController(SseStreamService sseStreamService, ObjectMapper objectMapper) {
+    /**
+     * 【Issue #98】SSE 整体超时（秒），对应 {@code rag.llm.sse-timeout-seconds}。
+     * 用字段注入而不改构造器签名，避免为一个小配置扰动已有调用链与测试。
+     */
+    @Value("${rag.llm.sse-timeout-seconds:120}")
+    private long sseTimeoutSeconds;
+
+    public SseChatController(SseStreamService sseStreamService,
+                             ObjectMapper objectMapper,
+                             com.smartqa.platform.service.rag.CourseSyllabusService courseSyllabusService) {
         this.sseStreamService = sseStreamService;
         this.objectMapper = objectMapper;
+        this.courseSyllabusService = courseSyllabusService;
     }
 
     /**
@@ -100,14 +138,30 @@ public class SseChatController {
             @RequestParam(required = false) String question,
 
             @Parameter(description = "会话 ID（首次提问传 0 或省略，续问传上次 done 包的 sessionId）")
-            @RequestParam(required = false) Long sessionId) {
+            @RequestParam(required = false) Long sessionId,
+
+            @Parameter(description = "答疑模式：direct（直答模式）/ tutor（启发式导师辅导模式，默认 direct）")
+            @RequestParam(required = false, defaultValue = "direct") String mode) {
 
         // 关键：登录态必须在请求线程取（Sa-Token 是 ThreadLocal），
         // 传给 sseExecutor 异步线程里的 streamChat —— 它拿不到登录态。
         long userId = StpUtil.getLoginIdAsLong();
 
-        // 超时时间 120 秒（与 application.yml rag.llm.timeout-seconds 保持裕量）
-        SseEmitter emitter = new SseEmitter(120_000L);
+        // 超时时间来自配置 rag.llm.sse-timeout-seconds（旧代码写死 120_000L，
+        // 既无法在测试里覆盖超时分支，也让它与首字节看门狗的先后关系变成隐性约束）。
+        long sseTimeoutMillis = sseTimeoutSeconds * 1000L;
+        SseEmitter emitter = new SseEmitter(sseTimeoutMillis);
+
+        // 【Issue #98】以前没有注册任何 onTimeout 回调：emitter 一到点就静默结束，
+        // 前端 EventSource 只看到流断开，拿不到失败原因也无法提示用户重试。
+        // 正常卡死场景下首字节看门狗（预算更小）会先跑；这里是最后一道保险，
+        // 覆盖“已开始推流后又卡住、导致永远发不出 done”这种情况。
+        emitter.onTimeout(() -> {
+            log.error("[SSE][#98] emitter 超时（{}ms）仍未完成，主动下发 error 收尾, userId={}",
+                    sseTimeoutMillis, userId);
+            sendErrorEvent(emitter, ERROR_CODE_LLM,
+                    "答疑响应超时，请重试；若持续超时说明大模型侧排队严重，可改用非思考模式模型或提高预算");
+        });
 
         // 【边界】空 / 纯空白提问在进入异步链路前拦下，否则会一路走到
         // embeddingModel.embed()，抛 IllegalArgumentException: text cannot be null or blank，
@@ -130,13 +184,11 @@ public class SseChatController {
         }
 
         // 【边界】超长提问：同样的理由走 SSE error 事件，给前端可读提示。
-        // 【审查 L2】字符数与 UTF-8 字节数双重校验：后者兜底 4 字节字符（emoji 等）
-        // 编码膨胀超出 Tomcat 请求行上限的情况，避免请求被协议层无信息 431 掉。
-        if (question.length() > MAX_QUESTION_LENGTH
-                || question.getBytes(StandardCharsets.UTF_8).length > MAX_QUESTION_UTF8_BYTES) {
+        // 只校验字符数（见 MAX_QUESTION_LENGTH Javadoc：字节级校验的立论已被实测推翻、已移除）。
+        if (question.length() > MAX_QUESTION_LENGTH) {
             log.warn("[SSE] 提问过长，userId={}, length={}", userId, question.length());
             sendErrorEvent(emitter, ERROR_CODE_PARAM,
-                    "提问内容过长（最多 " + MAX_QUESTION_LENGTH + " 字），请精简后重试");
+                    "提问内容过长（最多 " + MAX_QUESTION_LENGTH + " 个字符），请精简后重试");
             return emitter;
         }
 
@@ -144,7 +196,7 @@ public class SseChatController {
         // sseExecutor 采用 AbortPolicy：队列+线程打满时 @Async 提交会抛 TaskRejectedException，
         // 这里捕获后立刻给客户端下发 error 事件并结束，而不是拖占 Tomcat 线程（防级联 DoS）。
         try {
-            sseStreamService.streamChat(emitter, userId, courseId, question, sessionId);
+            sseStreamService.streamChat(emitter, userId, courseId, question, sessionId, mode);
         } catch (RejectedExecutionException e) {
             log.warn("[SSE] 问答线程池饱和，拒绝请求 userId={}, courseId={}", userId, courseId);
             sendErrorEvent(emitter, ERROR_CODE_BUSY, "服务繁忙，请稍后重试");
@@ -172,5 +224,19 @@ public class SseChatController {
             log.warn("[SSE] error 事件下发失败（客户端可能已断开）: {}", e.getMessage());
         }
         emitter.complete();
+    }
+
+    /**
+     * 查询课程知识大纲全景与考点树（A3.2）
+     *
+     * @param courseId 课程 ID
+     * @return 结构化课程大纲与考点树
+     */
+    @Operation(summary = "获取课程知识大纲与考点树",
+               description = "提供完整的章节大纲全景与知识考点映射，赋能启发式教学导学")
+    @GetMapping("/course/{courseId}/syllabus")
+    public com.smartqa.platform.common.Result<com.smartqa.platform.vo.CourseSyllabusVO> getCourseSyllabus(
+            @PathVariable Long courseId) {
+        return com.smartqa.platform.common.Result.success(courseSyllabusService.getCourseSyllabus(courseId));
     }
 }

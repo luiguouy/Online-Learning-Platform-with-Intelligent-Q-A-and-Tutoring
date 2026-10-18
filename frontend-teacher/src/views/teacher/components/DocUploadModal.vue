@@ -19,7 +19,7 @@
       <el-icon class="upload-icon"><UploadFilled /></el-icon>
       <div class="upload-text">拖拽课件文件到此处，或 <em>点击上传</em></div>
       <template #tip>
-        <div class="upload-tip">支持 PDF / DOCX / Markdown / TXT，单文件大小不超过 50MB</div>
+        <div class="upload-tip">支持 PDF / DOCX / Markdown / TXT，单文件大小不超过 20MB</div>
       </template>
     </el-upload>
 
@@ -52,8 +52,8 @@ import type { UploadProgressEvent, UploadProps } from 'element-plus';
 /** 上传接口路径（成员 B 提供，禁止改写） */
 const UPLOAD_ACTION = '/api/teacher/docs/upload';
 
-/** 单文件大小上限 50MB */
-const MAX_FILE_SIZE_MB = 50;
+/** 单文件大小上限 20MB（与后端解析层 rag.ingest.max-file-bytes 对齐，见 Issue #46） */
+const MAX_FILE_SIZE_MB = 20;
 
 /**
  * 允许的扩展名（大小写不敏感）。
@@ -92,8 +92,8 @@ function beforeUpload(file: File): boolean {
     return false;
   }
 
-  const isLt50M = file.size / 1024 / 1024 < MAX_FILE_SIZE_MB;
-  if (!isLt50M) {
+  const isLt20M = file.size / 1024 / 1024 < MAX_FILE_SIZE_MB;
+  if (!isLt20M) {
     ElMessage.error(`上传文件大小不能超过 ${MAX_FILE_SIZE_MB}MB!`);
     return false;
   }

@@ -1,5 +1,6 @@
 package com.smartqa.platform.config;
 
+import com.smartqa.platform.service.rag.ChromaThinEmbeddingStore;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import dev.langchain4j.model.chat.StreamingChatLanguageModel;
@@ -8,7 +9,6 @@ import dev.langchain4j.model.embedding.onnx.bgesmallzhq.BgeSmallZhQuantizedEmbed
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import dev.langchain4j.store.embedding.EmbeddingStore;
-import dev.langchain4j.store.embedding.chroma.ChromaEmbeddingStore;
 import dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -100,10 +100,15 @@ public class LangChain4jConfig {
      * 向量存储装配策略：
      *   1. 若配置 rag.chroma.base-url = DISABLED，直接使用 InMemoryEmbeddingStore（跳过探测）
      *   2. 否则对 Chroma 发起 HTTP 健康探测（/api/v2/heartbeat，超时 3 秒）
-     *      - 探测成功 → ChromaEmbeddingStore
+     *      - 探测成功 → ChromaThinEmbeddingStore（自建薄实现，见下）
      *      - 探测失败 → 降级 InMemoryEmbeddingStore（本地开发免装 Chroma 也能联调）
      *
-     * 注意：InMemory 数据仅存活于进程内存，重启即丢失，生产环境必须启动 Chroma。
+     * <p><b>【Issue #65 根治】</b>不再用 langchain4j-chroma 0.35 的 ChromaEmbeddingStore：
+     * 它构造期无条件 createCollection，collection 已存在即 409 → 后端二次启动必挂
+     * （升级 0.36.2 已被 spike 实测否证：存在性检查端点在 chromadb 0.6.3 上因 coroutine bug 恒 400）。
+     * ChromaThinEmbeddingStore 用「uuid 本地缓存 + PUT 探测复用」解决重启，语义对齐见其类 Javadoc。</p>
+     *
+     * <p>注意：InMemory 数据仅存活于进程内存，重启即丢失，生产环境必须启动 Chroma。</p>
      */
     @Bean
     @Primary
@@ -120,9 +125,11 @@ public class LangChain4jConfig {
         if (isChromaReachable(baseUrl)) {
             log.info("[RAG] Chroma 在线，连接向量数据库 -> url={}, collection={}",
                     baseUrl, chroma.getCollectionName());
-            return ChromaEmbeddingStore.builder()
+            // 【#65】构造期即解析 collection（复用/创建/迁移注入），失败抛带可行动指引的启动错误
+            return ChromaThinEmbeddingStore.builder()
                     .baseUrl(baseUrl)
                     .collectionName(chroma.getCollectionName())
+                    .collectionId(chroma.getCollectionId())
                     .build();
         }
 

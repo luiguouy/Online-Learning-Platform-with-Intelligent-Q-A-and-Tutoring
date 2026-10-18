@@ -5,9 +5,14 @@ import com.smartqa.platform.config.RagConfigProperties;
 import com.smartqa.platform.dto.KnowledgeGenerateDTO;
 import com.smartqa.platform.vo.KnowledgeGenerateVO;
 import dev.langchain4j.data.embedding.Embedding;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import dev.langchain4j.model.embedding.EmbeddingModel;
+import dev.langchain4j.model.output.FinishReason;
+import dev.langchain4j.model.output.Response;
+import dev.langchain4j.model.output.TokenUsage;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
 import dev.langchain4j.store.embedding.EmbeddingSearchResult;
@@ -121,13 +126,19 @@ public class KnowledgeService {
 
             // 2. 拼装 Prompt（不可信输入按 M2 以数据标签包裹）并阻塞式调用大模型
             String prompt = String.format(KNOWLEDGE_SUMMARY_PROMPT, knowledgePoint, context);
-            // langchain4j 0.35：ChatLanguageModel.generate(String) 便捷重载直接返回回复文本
-            String content = chatLanguageModel.generate(prompt);
+            // 【Issue #83】必须走 generate(List<ChatMessage>) 取 Response，不能用 generate(String) 便捷重载：
+            //   后者只回文本，把 finishReason 与 tokenUsage 全丢了。对"默认启用思考模式"的模型
+            //   （如 deepseek-flash），reasoning 会吃满 max-tokens 后返回空正文
+            //   （实测 finish_reason=length、正文 0 字符、reasoning 2590 字符、completion_tokens=1500）。
+            //   只有 finishReason + usage 能区分「模型压根没答」与「模型想了但没写完正文」；
+            //   否则日志只剩一行「大模型返回空内容」，与真实原因无关，排查只能靠外部直连 API 复现。
+            Response<AiMessage> llmResponse =
+                    chatLanguageModel.generate(List.of(UserMessage.from(prompt)));
+            String content = llmResponse.content() == null ? null : llmResponse.content().text();
 
             // 【L2】空/全空白兜底，避免向前端透传 content:null
             if (content == null || content.isBlank()) {
-                log.warn("[Knowledge] 大模型返回空内容, courseId={}, point={}", courseId, knowledgePoint);
-                throw new BusinessException(5001, "知识点解析生成失败，请稍后重试");
+                throw new BusinessException(5001, describeEmptyLlmResponse(courseId, knowledgePoint, llmResponse));
             }
 
             log.info("[Knowledge] 知识点精解生成完成, courseId={}, point={}, 长度={}",
@@ -145,6 +156,30 @@ public class KnowledgeService {
         } finally {
             llmConcurrencyGuard.release();
         }
+    }
+
+    /**
+     * 【Issue #83】正文为空时记全证据日志，并返回<b>区分性</b>的用户文案。
+     *
+     * <p>{@code LENGTH} 意味着输出预算被占满：默认启用思考模式的模型会把 max-tokens 全花在
+     * reasoning 上、正文一个字符都不产出。此时"请稍后重试"是<b>无效建议</b>（重试必然复现），
+     * 所以文案里必须给出可行动的出口，并把 max-tokens 与模型选择两条处置写进去。</p>
+     *
+     * <p>注意：本仓库当前依赖 langchain4j 0.35.0，其 OpenAI 兼容 builder
+     * <b>只有 customHeaders、没有 customParameters</b>（已 javap 核实），因此无法从代码侧
+     * 给 DeepSeek 传 {@code thinking.type=disabled}。真要显式关闭思考，只能换模型名或升依赖。</p>
+     */
+    private String describeEmptyLlmResponse(Long courseId, String point, Response<AiMessage> response) {
+        FinishReason reason = response.finishReason();
+        TokenUsage usage = response.tokenUsage();
+        log.error("[#83] 大模型返回空正文, courseId={}, point={}, finishReason={}, usage={}"
+                        + "（若为 LENGTH：输出预算已被推理占满，非用户输入问题）",
+                courseId, point, reason, usage);
+        if (reason == FinishReason.LENGTH) {
+            return "模型本次输出预算被推理占满，未产出正文；请重试。若持续如此，"
+                    + "需调高 rag.llm.max-tokens 或改用非思考模式模型（如 deepseek-chat）";
+        }
+        return "知识点解析生成失败，请稍后重试";
     }
 
     /** 检索本课课件相关片段并拼接为上下文字符串；无命中时返回占位提示（知识点讲解允许基于常识补充） */

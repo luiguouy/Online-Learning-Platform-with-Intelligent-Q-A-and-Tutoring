@@ -7,6 +7,7 @@ import com.smartqa.platform.entity.CourseDocument;
 import com.smartqa.platform.service.CourseDocumentService;
 import com.smartqa.platform.service.CourseService;
 import com.smartqa.platform.service.rag.DocumentIngestionService;
+import com.smartqa.platform.service.rag.SemanticCacheService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
@@ -66,6 +67,7 @@ public class TeacherDocumentController {
     private final CourseDocumentService docService;
     private final CourseService courseService;
     private final DocumentIngestionService ingestionService;
+    private final SemanticCacheService semanticCacheService;
 
     /** 课件切块专用线程池（AsyncThreadPoolConfig 中定义，与 SSE 问答流隔离），禁止使用默认公共池 */
     @Resource(name = "ingestExecutor")
@@ -155,6 +157,17 @@ public class TeacherDocumentController {
         return Result.success(docService.listByCourse(courseId));
     }
 
+    /**
+     * 删除课件（级联清理向量库，防止幽灵参考资料）。
+     *
+     * <p><b>⚠️ 本方法必须保持「无事务」</b>（本类与全局均未使用 {@code @Transactional}，
+     * <b>请勿给它加上</b>）：② 的逻辑删除依赖 {@code removeById} 立即 autocommit，
+     * 在途切块线程的「写入后复核」才能读到删除事实；③ 也正是借此顺序才闭合窗口。
+     * 若加上 {@code @Transactional}，② 在提交前对其它连接不可见，时序退化为
+     * {@code ① → ③ → (addAll) → 复核读到记录仍在 → 不清理 → (提交)}，
+     * 幽灵切片将<b>永久残留</b>；而且现有 3 条竞态用例仍会全绿（测试同样无事务），
+     * 照不出这个回归 —— 即"看起来更严谨"的重构会静默击穿 #58 修复。</p>
+     */
     @DeleteMapping("/{id}")
     @Operation(summary = "删除课件（级联清理向量库，防止幽灵参考资料）")
     public Result<Boolean> delete(@PathVariable("id") Long id) {
@@ -167,9 +180,78 @@ public class TeacherDocumentController {
 
         // 关键：MySQL 记录删掉后必须同步删除向量库中该 docId 的全部切块，
         // 否则课件没了但学生提问仍能检索到它的片段（幽灵参考资料）。
-        ingestionService.removeDocumentVectors(id);
-        docService.removeById(id);
+        //
+        // 【Issue #58 竞态】删除允许发生在"解析中"，而在途切块线程是**切完全部片段后
+        // 一次性** embeddingStore.addAll(...)。若本方法的清向量动作先于那次 addAll，
+        // 就成了"先清了个空、随后被写回"的幽灵切片。三步顺序不可调换：
+        //   ① 前置清扫 —— 向量库异常时在"尚未改变任何业务状态"前失败，用户可原样重试；
+        //   ② 逻辑删除记录（is_deleted=1）—— 这是给在途切块线程的「作废」信号，
+        //      必须早于 ③：否则在途线程的"写入后复核"读不到删除事实（TOCTOU，仅靠
+        //      "写入前检查记录是否存在"无法覆盖）；
+        //   ③ 删后复扫 —— 关闭 ①→② 之间落入的 addAll（在途线程恰好在那一段完成写入时，
+        //      ① 清到的是空集合），使本接口自身闭环，不单独依赖异步侧的复核。
+        // 在途线程侧的兜底见 submitIngestion 的「写入后复核」。
+        ingestionService.removeDocumentVectors(id);   // ①
+        docService.removeById(id);                    // ② 逻辑删除
+        semanticCacheService.invalidateCourse(doc.getCourseId()); // 刷新该课程语义缓存
+        // 【审查 P2-2】③ 失败不得让整个删除接口回 500：删除这一业务事实（②）已经成立，
+        // 回 500 会让教师误以为没删掉而重复上传，反而放大残留；且记录已逻辑删除，
+        // 重试只会拿到 404"课件不存在"，再没有任何接口能触发这次清理。
+        // 故降级为告警日志 + 仍返回业务成功；残留切片的人工/对账清理见 Issue #62。
+        try {
+            ingestionService.removeDocumentVectors(id);   // ③
+        } catch (Throwable e) {
+            // 【Issue #74 §三】同 submitIngestion：这一步也可能抛 Error（依赖缺类 / 原生库缺失），
+            // catch (Exception) 接不到就会让本次删除以 500 收场 —— 而"删除"这一业务事实在 ② 已成立，
+            // 回 500 会让教师误以为没删掉而重复上传，正是本段注释要避免的情形。
+            log.error("[#58] 删后复扫失败，可能存在残留切片需人工清理, docId={}", id, e);
+        }
+
+        // 磁盘原件清理：逻辑删除只把记录置为 is_deleted=1，不删文件则教师每删一次课件
+        // 就在服务器上永久留一份原件（磁盘泄漏；向量与语义缓存上面都已清，磁盘是唯一漏点）。
+        // 采与 ③ 相同的降级策略：删除事实在 ② 已成立，清盘失败只告警不回 500。
+        deleteStoredFileQuietly(doc.getFilePath(), id);
+
         return Result.success(true);
+    }
+
+    /**
+     * 静默删除课件磁盘原件，并带一道<strong>目录边界护栏</strong>。
+     *
+     * <p>{@code file_path} 是从数据库读回来的值。不做边界校验就把“删除接口”递给一个
+     * 可控路径，等于把接口异化为<strong>任意文件删除原语</strong>（一行被污染/手工写入的
+     * 记录就能删掉 jar、配置或系统文件），所以只允许删配置指定上传目录<strong>子树内</strong>
+     * 的文件；目录外一概不删，只记告警日志。</p>
+     *
+     * <p>路径比较用 {@code getCanonicalPath()} 而非字符串前缀拼接：Windows 大小写不敏感、
+     * 存在 {@code ..} 与 8.3 短名等形式，字符串比较容易被绕过。</p>
+     */
+    private void deleteStoredFileQuietly(String filePath, Long docId) {
+        if (filePath == null || filePath.isBlank()) {
+            return;   // 文本直入库等路径可能无磁盘原件，不是错误
+        }
+        File target = new File(filePath);
+        if (!target.isFile()) {
+            return;   // 已清过或从未落盘
+        }
+        try {
+            String root = new File(uploadDir).getCanonicalPath();
+            String canonical = target.getCanonicalPath();
+            if (!canonical.startsWith(root + File.separator)) {
+                log.error("[磁盘清理] 拒绝删除上传目录之外的文件（防被当成任意文件删除接口）, "
+                        + "docId={}, filePath={}, uploadDir={}", docId, canonical, root);
+                return;
+            }
+            if (!target.delete()) {
+                log.warn("[磁盘清理] 原件删除失败（可能正被占用），需人工清理, docId={}, filePath={}", docId, canonical);
+            } else {
+                log.info("[磁盘清理] 课件磁盘原件已删除, docId={}, filePath={}", docId, canonical);
+            }
+        } catch (IOException e) {
+            log.warn("[磁盘清理] 路径解析失败，保留磁盘原件不删, docId={}, filePath={}", docId, filePath, e);
+        } catch (RuntimeException e) {
+            log.error("[磁盘清理] 删除磁盘原件出现意外异常, docId={}, filePath={}", docId, filePath, e);
+        }
     }
 
     @PostMapping("/{id}/reindex")
@@ -181,6 +263,7 @@ public class TeacherDocumentController {
             throw new BusinessException(404, "课件不存在");
         }
         courseService.assertTeacherOwnsCourse(doc.getCourseId(), teacherId);
+        semanticCacheService.invalidateCourse(doc.getCourseId());
 
         // 1. 状态 CAS：仅当课件处于终态(CHUNKED/FAILED)才允许重建。抢到锁才继续，
         //    避免对“解析中”课件并发重复提交切块，也避免“删旧向量”与“在途写入”交错产生重复/幽灵切片。
@@ -189,7 +272,34 @@ public class TeacherDocumentController {
         }
 
         // 2. 再清旧向量，否则重建会产生重复切片（CAS 已成功，此刻无其他在途切块）
-        ingestionService.removeDocumentVectors(id);
+        //
+        // 【Issue #57 §一】清理失败绝不能让状态停在 PARSING：上面 markParsingIfSettled 只放行
+        //   CHUNKED/FAILED，若此处抛异常使状态留在 PARSING，该课件将**永久无法再次重建**（自锁）：
+        //   再点一次会被 409 拒、刷新无效，而前端轮询到 2 分钟自行停止后显示的仍是
+        //   “切块向量化中”，教师根本看不出已经卡死。故这里显式回置 FAILED（终态），
+        //   既让用户看到失败原因，又因 FAILED 在 CAS 放行集合内而可以重试。
+        //
+        // ⚠️ 与 delete() 的「③ 删后复扫」处理方式**刻意相反**，不要照着那边改：
+        //   delete() 里“删除”这一业务事实已经成立，③ 只是补偿，所以失败只记 ERROR 仍返回业务成功；
+        //   而这里的清理是重建的**必要前置**，没清干净就继续切块恰恰会产生重复切片，
+        //   所以必须中止、回置失败并把原因告知用户。
+        try {
+            ingestionService.removeDocumentVectors(id);
+        } catch (Throwable e) {
+            // 【Issue #74 §三】捕获面必须是 Throwable：清理会因依赖缺类 / 原生库缺失抛 Error，
+            // 而 catch (Exception) 漏掉它时，下面"回置 FAILED"这一步根本不会执行 —— 状态就停在
+            // PARSING（正是本段注释要防的自锁）。
+            log.error("[#57] reindex 清理旧向量失败，已回置 FAILED 以便重试, docId={}", id, e);
+            try {
+                docService.markFailed(id, "重建索引失败：清理旧向量未成功（向量库可能暂时不可用），请稍后重试");
+            } catch (Throwable inner) {
+                // 回置也失败：课件会停在 PARSING（即本方法要防的那个状态）。此时已无更好的选择，
+                // 但两个异常都必须留在日志里且带 docId，否则人工也无法定位该课件。
+                log.error("[#57] 回置 FAILED 亦失败，课件状态可能停留在 PARSING，需人工按 docId 修正, docId={}",
+                        id, inner);
+            }
+            throw new BusinessException(500, "重建索引失败：旧向量清理未成功，请稍后重试");
+        }
 
         // 3. 异步重新切块
         submitIngestion(id, doc.getCourseId(), doc.getFileName(), doc.getFilePath(), teacherId);
@@ -198,7 +308,12 @@ public class TeacherDocumentController {
     }
 
     /**
-     * 在 sseExecutor 中异步执行「切块向量化 → 状态回写」。
+     * 在 ingestExecutor 中异步执行「切块向量化 → 状态回写」。
+     *
+     * <p>注意池名：本任务跑在<b>课件切块专用池 {@code ingestExecutor}</b> 上，与 SSE 问答流的
+     * {@code sseExecutor} 是<b>两个隔离的池</b>（见 {@code AsyncThreadPoolConfig}）。
+     * 早期注释曾误写为 {@code sseExecutor}，排查切块积压时请查 {@code ingestExecutor} 的
+     * 活跃数与队列，不要查错池。</p>
      *
      * <p>状态回写由本异步块自己完成（成功置 CHUNKED + 分块数，异常置 FAILED + errorMsg），
      * 成员 A 不需要回调任何方法。异常必须兜住，否则前端会永远显示"切块向量化中"。</p>
@@ -209,10 +324,32 @@ public class TeacherDocumentController {
             CompletableFuture.runAsync(() -> {
                 try (InputStream in = new FileInputStream(filePath)) {
                     int chunks = ingestionService.ingest(in, fileName, courseId, docId, uploadedBy);
+
+                    // 【Issue #58】写入后复核（整条链路对并发删除的最后兜底）。
+                    // delete() 允许在解析中删除课件；若本任务的 addAll 恰好落在它 ①→③
+                    // 两次清扫之间，向量就会以"幽灵切片"留在库中。addAll 之后再查一次记录
+                    // 是否还在：记录已被逻辑删除（getById 返回 null，逻辑删除对它可见）
+                    // 说明这次的切块结果已被作废 → 立即回收刚写入的向量，且不回写状态。
+                    // ⚠️ 必须是"写后查"：写成"查后再写"只能缩小窗口，消除不了 TOCTOU。
+                    if (docService.getById(docId) == null) {
+                        ingestionService.removeDocumentVectors(docId);
+                        log.warn("[#58] 课件在解析期间被删除，已回收刚写入的向量切片, docId={}, chunks={}",
+                                docId, chunks);
+                        return;
+                    }
                     docService.markChunked(docId, chunks);
-                } catch (Exception e) {
+                } catch (Throwable e) {
+                    // 【Issue #74 §三】这里必须是 Throwable，不能是 Exception —— 接不到 Error 就是静默失败。
+                    // ingest() 只在 Tika 解析段借 Future.get() 把 Error 转成 Exception；其后的
+                    // embedAll / addAll（splitEmbedAndStore）没有任何包装，UnsatisfiedLinkError
+                    // （BGE/ONNX 原生库缺失）、NoClassDefFoundError（依赖缺类）会直接冒泡到这里。
+                    // 而本任务是 CompletableFuture.runAsync 提交、返回值被丢弃、无人 join()/get()，
+                    // CompletableFuture$AsyncSupply.run() 自身 catch (Throwable) 后只把异常存进结果对象
+                    // （javap 实测异常表：from 35 to 46 target 49 Class java/lang/Throwable）——
+                    // 既不打印也不传播。漏掉 Error 时课件会永久停在 PARSING：全仓无任何超时兜底，
+                    // reindex 的状态 CAS 又只放行 CHUNKED/FAILED，该课件从此无法重建，只能重传。
                     log.error("课件切块向量化失败, docId={}, fileName={}", docId, fileName, e);
-                    docService.markFailed(docId, e.getMessage());
+                    markFailedSafely(docId, e);
                 }
             }, asyncExecutor);
         } catch (RejectedExecutionException e) {
@@ -223,9 +360,57 @@ public class TeacherDocumentController {
         }
     }
 
+    /**
+     * 失败状态回写（带二次兜底）。
+     *
+     * <p>调用方已处在"捕获 {@code Throwable}"的兜底分支里，所以回写动作自身
+     * （查库 / 清向量 / 更新状态）绝不能再让异常逸出 —— 逸出即回到"无人 join 的
+     * {@code CompletableFuture} 静默吞异常"的老路，课件依旧停在 {@code PARSING}。</p>
+     *
+     * <p>文案分档：{@code Error}（框架 / 依赖级故障）给"系统组件异常"这一档，
+     * 不把类名技术串直接展示给教师；普通 {@code Exception} 原样沿用 {@code ingest()}
+     * 抛出的面向用户文案（#55 口径：三类上限与"无文字层"的具体原因都在里面，不可覆盖）。</p>
+     */
+    private void markFailedSafely(Long docId, Throwable cause) {
+        String reason = (cause instanceof Error)
+                ? "系统组件异常，切块向量化未能完成（SYS-INGEST-DEP），请稍后重试或联系管理员"
+                : cause.getMessage();
+        try {
+            if (docService.getById(docId) == null) {
+                // 课件已被删除：既不回写 FAILED（updateById 本就会影响 0 行、徒留误报日志），
+                // 也顺手清掉可能已部分写入的切片，避免留下幽灵参考资料。
+                ingestionService.removeDocumentVectors(docId);
+                log.warn("[#58] 课件在解析期间被删除，跳过失败状态回写并清理残留切片, docId={}", docId);
+            } else {
+                docService.markFailed(docId, reason);
+            }
+        } catch (Throwable t) {
+            // 极端情况（如向量库连 GET 都抛 Error）：状态可能仍停在 PARSING，
+            // 但日志里必须留下可按 docId 人工定位的线索。
+            log.error("[#74] 失败状态回写未成功，课件可能仍停留在 PARSING，需人工按 docId 修正, docId={}",
+                    docId, t);
+        }
+    }
+
     /** 取小写扩展名（已通过白名单校验，不会为 null） */
     private String extractExtension(String fileName) {
         int idx = fileName.lastIndexOf('.');
         return idx < 0 ? "" : fileName.substring(idx + 1).toLowerCase();
+    }
+
+    /**
+     * 孤儿向量切片对账清理端点（Issue #62 根治）
+     *
+     * <p>供管理员或维护人员一键触发（也可按需接入定时器）：扫描已逻辑删除超过静默期的课件，
+     * 强力清理向量库与 BM25 中残留的孤儿切块，彻底闭环删后复扫失败残留问题。</p>
+     *
+     * @param quietMinutes 静默期分钟数，默认 10
+     * @return 成功清理的课件数
+     */
+    @Operation(summary = "孤儿向量切片对账清理（#62 根治）", description = "清理已逻辑删除超过静默期的课件残留切片")
+    @PostMapping("/reconcile-deleted-vectors")
+    public Result<Integer> reconcileDeletedVectors(@RequestParam(defaultValue = "10") int quietMinutes) {
+        int count = docService.reconcileDeletedDocumentVectors(quietMinutes);
+        return Result.success(count);
     }
 }

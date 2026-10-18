@@ -112,7 +112,7 @@ src/
 ├── types/           // 全局 TypeScript 类型声明
 ├── utils/           // 工具函数 (SSE请求封装, 日期格式化, 复制文本)
 └── views/           // 页面组件
-    ├── auth/        // 登录页（本期不实现注册）
+    ├── auth/        // 登录页 + 学生注册页（/login、/register）
     ├── student/     // 学生前台问答工作台、知识点解析展示
     └── teacher/     // 教师后台课件管理、问答审计页
 ```
@@ -140,8 +140,81 @@ src/
   </script>
   ```
 - **样式规范**：
-  - 统一使用 `<style scoped>` 或 Tailwind CSS 工具类，严禁污染全局全局样式选择器。
+  - 统一使用 `<style scoped>`，严禁污染全局样式选择器。
   - Element Plus 表格、按钮的色彩需统一遵循设计主题（主色采用 Indigo `#4F46E5`）。
+
+#### 3.2.1 附录：跨端视觉基线（两端一致性约定）
+
+> **来源**：成员 D 起草（2026-09-20）→ 成员 C 复核并修正（09-21，Issue #43）→ 组长 A 裁决并入本节（A 选 (a)，09-26）。
+> **适用范围**：`frontend-teacher/` 与 `frontend-student/`。
+> **作用**：把**已经一致的事实固化**，防止后续各自演化 —— 不是重新设计视觉。答辩演示时两端会同屏出现。
+
+**（1）已统一的事实（实测）**
+
+| 项 | 值 |
+| :--- | :--- |
+| 主色 | Indigo **`#4F46E5`** |
+| Element Plus | `^2.6.1`（两端同版本） |
+| 基础变量文件 | 两端 `styles/global.css` **在仓库内是同一个 git blob**（`git hash-object` 均为 `0d5250e228…`） |
+| 主色衍生色阶 | `--el-color-primary-light-3/5/7/8/9` + `dark-2` |
+| 字体栈 | `Helvetica Neue` → `PingFang SC` → `Hiragino Sans GB` → `Microsoft YaHei`；正文 14px |
+| 登录页背景 | `linear-gradient(135deg, #eef2ff 0%, #f8fafc 55%, #f5f3ff 100%)` |
+| 样式方案 | 统一 `<style scoped>`；**两端均未使用 Tailwind** |
+| 共享依赖 | **10 项版本完全一致**：vue `^3.4.21`／vite `^5.1.6`／pinia `^2.1.7`／vue-tsc `^2.0.6`／typescript `^5.2.2`／axios `^1.6.8`／vue-router `^4.3.0`／`@element-plus/icons-vue` `^2.3.1`／`@vitejs/plugin-vue` `^5.0.4`／element-plus `^2.6.1` |
+
+> ⚠️ **判定「基础样式是否一致」的正确方法：用 `git hash-object` 比对 blob，不要用本地 `diff`。**
+> 本机 `core.autocrlf=true` → 检出后行尾为 CRLF；不同机器/目录的检出状态可能不同，**本地 `diff` 会产生假差异**（成员 C 指出，已核实）。
+
+> **合理差异（不算走样）**：学生端额外含 `markdown-it` / `dompurify` / `highlight.js` / `@microsoft/fetch-event-source` —— SSE 流式与 Markdown 渲染必需。
+
+**（2）新增 / 修改页面时的 3 条硬规则**
+
+1. **颜色只用主题变量** —— `var(--el-color-primary*)`、`var(--app-*)`；不写死十六进制（纯 `#fff` / `#000` 可接受）。
+2. **不引入依赖白名单外的 UI 库 / 图标库** —— 图标只用 `@element-plus/icons-vue`。
+   > 判据：查 `package.json` 的 `dependencies`（规则见 `dev-docs/AGENT_INSTRUCTIONS.md` 第 2 条）。
+   > ⚠️ **不要用全仓 `grep` 判定** —— 注释里可能出现关键词造成**假阳性**（如学生端 `MarkdownViewer.vue` 有一条"不引 Tailwind"的注释）。
+3. **样式一律 `<style scoped>`**，不污染全局选择器。
+
+**（3）圆角 / 阴影 / 间距**
+
+**① Element Plus 组件本身**（按钮 / 输入框 / 抽屉 / 卡片 / 表格）→ **不覆写**圆角、阴影、间距。
+现状：**两端均已满足**（全仓 `:deep()` 只出现在 Markdown 正文之下，无一处针对 EP 组件）。
+
+**② EP 没有的自定义容器**（聊天气泡、圆形头像、Markdown 正文、出处卡片）→ **允许自设**，但取值**限定在统一刻度内**：
+
+| 项 | 刻度 |
+| :--- | :--- |
+| 圆角 | **4 / 6 / 8 / 12 px**（圆形元素用 `50%`） |
+| 间距 | **4 / 8 / 12 / 16 / 24 px** |
+
+> 现有实现已落在刻度内（登录卡 12px、卡片 8px 等）；**如需新增刻度，先在群里说明**。
+> 📌 **为什么不写成笼统的「不自行设值」**：那等于当场宣布两端现有代码全部违约，规范会被绕开、反而失去约束力（成员 C 提出，已被采纳）。
+
+**（4）复核命令**
+
+```bash
+# ① 基础样式是否同一 blob（权威判据；两端应输出相同 hash）
+git hash-object frontend-teacher/src/styles/global.css
+git hash-object frontend-student/src/styles/global.css
+
+# ② 共享依赖版本比对
+grep -E '"(vue|pinia|element-plus|vite)"' frontend-{teacher,student}/package.json
+
+# ③ 是否引入 Tailwind（查 dependencies，勿全仓 grep）
+grep -c tailwind frontend-{teacher,student}/package.json
+
+# ④ 圆角实际取值（应落在刻度内）
+grep -rn "border-radius" frontend-{teacher,student}/src
+```
+
+**（5）✅ 已收口：本节正文与实现的一处不一致（Issue #60）**
+
+本节正文「样式规范」原写有「统一使用 `<style scoped>` **或 Tailwind CSS 工具类**」，但实测：
+
+- 两端 `package.json` 的 `dependencies` **均无任何 Tailwind 相关项**，实际实现统一为 `<style scoped>`；
+- `dev-docs/AGENT_INSTRUCTIONS.md` 第 2 条**亦禁止擅自引入未约定依赖**（Tailwind 不在白名单内）。
+
+**处置结果**：组长已确认，正文该句的「或 Tailwind CSS 工具类」**已删去**，同时修正同行笔误「污染全局全局样式选择器」→「污染全局样式选择器」。正文与本附录现已一致，原「提请确认」 note 由本条取代，Issue #60 关闭。
 
 ### 3.3 SSE 流式通信与 Markdown 渲染安全
 - **流式请求管理**：推荐使用 `@microsoft/fetch-event-source` 库，在用户切换会话或离开页面时，**必须调用 `abort()` 中断未完成的 SSE 流**，防止内存泄漏和后端无意义调用。

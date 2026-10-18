@@ -10,6 +10,24 @@
 
 ### 1. 建库导数据
 
+> ⚠️ 需**本机已安装 MySQL 的命令行客户端 `mysql`**（仓库不随附）；且 `mysql … < 文件` 是 bash/cmd 写法 ——
+> **Windows PowerShell 不支持 `<` 输入重定向**（会报 `The '<' operator is reserved for future use.`）。
+> **PowerShell 首选（字节原样，不做任何编码转换）**：
+> ```powershell
+> cmd /c "mysql -u root -p < src/main/resources/db/schema.sql"
+> cmd /c "mysql -u root -p smart_qa < src/main/resources/db/data.sql"
+> ```
+>
+> ⚠️ **纯 PowerShell 管道写法要同时改两处编码；只加 `-Encoding UTF8` 不够**（本机 PS 5.1 实测）：
+> `schema.sql` / `data.sql` 均**无 BOM**，PS 5.1 的 `Get-Content` 默认按系统 ANSI 读取 → 中文注释乱码；
+> 即使补 `-Encoding UTF8` 读对了，管道送进原生命令时仍按 `$OutputEncoding`（PS 5.1 默认 **us-ascii**）降级，中文变 `?`。
+> ```powershell
+> $OutputEncoding = New-Object System.Text.UTF8Encoding $false   # 必须，否则中文落库变 ?
+> Get-Content -Encoding UTF8 src/main/resources/db/schema.sql | mysql -u root -p
+> Get-Content -Encoding UTF8 src/main/resources/db/data.sql   | mysql -u root -p smart_qa
+> ```
+> **无 `mysql` CLI 的等价做法**：用 Navicat / DBeaver / JDBC 等任意客户端依次执行这两个 `.sql` 文件即可（两者均在仓库内：`src/main/resources/db/schema.sql`、`data.sql`）。
+
 ```bash
 mysql -u root -p < src/main/resources/db/schema.sql
 mysql -u root -p smart_qa < src/main/resources/db/data.sql
@@ -31,13 +49,21 @@ mysql -u root -p smart_qa < src/main/resources/db/data.sql
 `src/main/resources/application-local.yml`：
 
 ```bash
-export MYSQL_PASSWORD=你的密码
+export MYSQL_PASSWORD=你的密码                        # POSIX shell
 export AI_API_KEY=sk-xxxx      # 成员 A 用，B 的模块不依赖
 ```
+> **PowerShell 等价**：`$env:MYSQL_PASSWORD='你的密码'`、`$env:AI_API_KEY='sk-xxxx'`（同一会话内生效）。
+> **IDE 等价**：直接在 Run/Debug 配置里加同名环境变量，无需命令行。
 
 **绝对不要把真实 Key 或生产密码写进 application.yml 并提交。**
 
 ### 3. 编译与启动
+
+> ⚠️ `mvn` 需**本机已安装 Maven**（仓库未内置 `mvnw`/`mvnw.cmd`，故不给 wrapper 等价命令）。
+> 版本基线：**Maven 3.8+** —— 见 `dev-docs/DEV_SPECIFICATION.md` §6.1「构建工具」；
+> `pom.xml` 未声明最低版本、CI 用 runner 自带版本，故此处以团队规范为准。
+> **等价路径**：① 安装 Maven 并把 `bin` 加入 `PATH`；或 ② 用 IDE 的 Maven 面板执行同名 goal；
+> 或 ③ 直接跑仓库内脚本 `backend/run-local.ps1`（= `mvn spring-boot:run` 且加载 `backend/.env`，以 `local` profile 启动）。
 
 ```bash
 mvn clean compile        # 验收命令：必须看到 BUILD SUCCESS
@@ -73,7 +99,7 @@ backend/
     │   │   └── GlobalExceptionHandler.java  401/403/400/404/429/500 分档处理
     │   ├── config/
     │   │   ├── MybatisPlusConfig.java       分页插件（不配 IPage 分页会失效）
-    │   │   ├── AsyncThreadPoolConfig.java   sseExecutor 专用线程池（Bean 名固定）
+    │   │   ├── AsyncThreadPoolConfig.java   sseExecutor / ingestExecutor 双专用池（Bean 名固定）
     │   │   └── SaTokenConfigure.java        路由鉴权 + 限流拦截器注册
     │   ├── auth/
     │   │   └── StpInterfaceImpl.java        ★ 不实现则教师端全部 403
@@ -148,7 +174,30 @@ Content-Type: application/json
 ```
 
 前端把 `token` 存 `localStorage`（键名 `satoken`），`role` 存 store 用于路由守卫。
-**本期没有注册接口，不要找 `/api/auth/register`。**
+
+### 3.1.1 学生注册
+
+```
+POST /api/auth/register
+Content-Type: application/json
+
+{ "username": "student03", "password": "Passw0rd91", "nickname": "李小华" }
+```
+
+返回体与 3.1 登录**完全一致**（`data` 同为 `LoginVO`）：注册即登录，前端拿到 `token` 直接 `setSession` 进工作台，不需要二次登录。
+
+契约要点（改这个接口前先读）：
+- **不接受 `role` 入参**，服务端一律落 `STUDENT`。这是防越权设计：否则任何人注册个 TEACHER 就能进 `/api/teacher/**`。
+- 字段校验（不合规返回 400）：
+  - 账号：`^[a-zA-Z0-9_]{4,20}$`；
+  - 密码：**8-32 位且同时含字母与数字**，并拒绝常见弱口令、整串同字符与等步长序列（如 `12345678`、`abcdefgh`）；
+  - 姓名：**1-30 字**（与改资料处同一约束，不再是 50），不含控制字符/零宽字符/尖括号，首尾不得带空白。
+  规则实现在 `validation/StrongPassword.java` 与 `validation/ValidNickname.java`，
+  前端 `frontend-student/src/utils/validators.ts` 与之同口径；**改阈值三处同改**。
+- ⚠ **登录接口不校验强度**，所以 `data.sql` 里的演示账号（口令 `123456`）仍可正常登录，只有新注册会被拦——演示前不要把注册与登录的口径混为一谈。
+- 用户名重复返回 400 `用户名已存在`。先 SELECT 查重给友好提示，并发穿透时由 `sys_user.username` 的 UNIQUE 约束兜底（捕获 `DuplicateKeyException` 后同一句提示），两层都要保留。
+- 密码 BCrypt 加密落库，任何响应都不回显密码。
+- 本接口在 `SaTokenConfigure` 的 `excludePathPatterns` 中显式放行，调用时**不需要**带 `Authorization` 头。
 
 ### 3.2 课程列表
 
@@ -240,6 +289,49 @@ GET /api/teacher/qa/records?courseId=1&pageNum=1&pageSize=10&keyword=LRU
 
 ---
 
+### 3.6 退出登录
+
+```
+POST /api/auth/logout          Authorization: Bearer <token>
+```
+
+返回 `data` 为 `null`。**为什么必须调后端**：sa-token 的 `timeout` 是 7 天，只删 `localStorage`
+的话令牌在服务端仍有效七天（公用电脑 / 令牌被复制 / XSS 窃取后无从主动吊销）。
+前端请把它当**幂等**操作：接口失败（网络异常或已过期回 401）也要清本地并跳登录页，
+不能让“退出”按钮没反应。已接入：教师端与学生端的 `handleLogout`。
+
+### 3.7 学生端 · 个人资料与头像（成员 C）
+
+```
+GET  /api/user/profile         Authorization: Bearer <token>
+PUT  /api/user/profile         Authorization: Bearer <token>
+POST /api/user/avatar          Authorization: Bearer <token>   multipart: file
+```
+
+- `GET` 返回 `UserProfileVO`：`userId / username / nickname / role / avatarUrl / bio / createdAt / sessionCount / recordCount`。
+- `PUT` 入参 `UpdateProfileDTO`：`nickname` **1-30 字且与注册同约束**（不含控制/零宽字符与尖括号）、`bio` ≤**150** 字、`avatarUrl` ≤255。
+  ⚠ 前端的 `ProfileView.vue` 与 `RegisterView.vue` 共用 `utils/validators.ts`，**改一边同步改另一边**（历史上曾出现注册允许 50 字、改资料只允许 30 字，导致长姓名账号注册后改不了资料）。
+- 头像：仅 `jpg/jpeg/png/gif/webp`且 ≤5MB；落盘 `{uploadDir}/avatars/`，文件名为 `avatar_` + **完整 UUID** + 后缀。
+  返回的 `avatarUrl` 形如 `/uploads/avatars/xxx.png`，可直接给 `<img src>`（该子目录经静态映射公开可访，无需带 token）。
+
+### 3.8 学生端 · 问答附件上传（成员 C）
+
+```
+POST /api/qa/upload/attachment      Authorization: Bearer <token>   multipart: file
+```
+
+- 图片（`jpg/jpeg/png/gif/webp`）≤5MB；文档（`pdf/docx/md/txt`）≤**20MB**（与 `rag.ingest.max-file-bytes` 同值）。
+- 返回 `AttachmentVO`：`fileUrl`（`/uploads/attachments/{时间戳}_{完整UUID}_{原名}`）、`fileName`、`fileType`
+  （`image` / `doc`）、`fileSize`、`extractedText`。
+- `extractedText`：文档类附件经 Tika 提取的纯文本，**截断到 2000 字**供提问时作上下文；
+  提取与课件入库**共用同一套三层安全上限**（输入字节 / 提取字符 / 超时），提取失败或超限降级为空串而不影响上传本身。
+- 空文件 / 格式不符 / 超出大小闸均回 **400** 与可读文案（`BusinessException` 默认码就是 400）；
+  服务器落盘失败回 **500** 但只给通用提示，**不拼异常原文**（里面含服务器绝对路径），细节全进日志。
+
+> 本节三个接口与登录/注册/课件上传一同受**限流**保护（默认 10 次/分钟/用户，登录 10 次/分钟/IP、注册 5 次/10 分钟/IP）；
+> 命中阈值时 **HTTP 仍为 200**，body 里 `code=429`，文案“上传过于频繁，请稍后再试”。
+> 口径与两个限流拦截器的分工见 `dev-docs/SECURITY_DECISIONS.md` 的 SEC-3。
+
 ## 四、给成员 A 的冻结契约（Day 3 死线）
 
 ### 4.1 B 交付给 A 的两个方法
@@ -270,7 +362,7 @@ public interface DocumentIngestionService {
 }
 ```
 
-- B 负责把课件落盘、落库、把状态推到 `PARSING`，然后**在 sseExecutor 线程池里异步调用**；
+- B 负责把课件落盘、落库、把状态推到 `PARSING`，然后**在 `ingestExecutor`（课件切块专用池，与 SSE 问答流的 `sseExecutor` 隔离）里异步调用**；
 - 切块成功/失败后的状态回写**由 B 自己的异步块完成**，A 不需要回调任何方法；
 - 若 A 在别的包下已有同名接口，**删掉 B 目录下的这份、保留 A 的**，方法签名必须一致。
 
@@ -287,7 +379,8 @@ public interface DocumentIngestionService {
 | 教师删别人课程的课件 | HTTP 403 |
 | 上传 `.exe` | HTTP 400 "仅支持 PDF / DOCX / MD / TXT 格式" |
 | 文件名含 `../../` | HTTP 400 "文件名非法"（已剥离路径，防目录穿越） |
-| 上传超过 50MB | HTTP 400 "文件超过 50MB 上限" |
+| 上传超过 **20MB**（业务上限，解析层 `rag.ingest.max-file-bytes`） | HTTP 200，课件落 `FAILED`，`errorMsg` = 「课件文件超过解析大小上限（20 MB），请拆分后重新上传…」 |
+| 上传超过 **50MB**（multipart 容器级粗保护，非业务口径） | HTTP 400 "文件超过 50MB 上限" |
 | 反馈 `status` 传 0 或 2 | HTTP 400 "反馈状态只能是 1（点赞）或 -1（点踩）" |
 | AI 回答里带 SQL / 磁盘路径的异常 | 只回 `系统繁忙，请稍后重试`，堆栈只进日志 |
 

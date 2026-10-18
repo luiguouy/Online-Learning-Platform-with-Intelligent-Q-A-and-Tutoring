@@ -12,12 +12,15 @@
     pwsh -File scripts/graft-build.ps1            # 建图
     pwsh -File scripts/graft-build.ps1 -Map       # 建图后顺便打印仓库地图概览
     pwsh -File scripts/graft-build.ps1 -Viz       # 建图后启动交互式可视化(本地 4400 端口)
+    pwsh -File scripts/graft-build.ps1 -Check     # 只检查图谱是否过时(不重建)，exit 1 = 已过时
 #>
 [CmdletBinding()]
 param(
     [switch]$Map,   # 建图后输出 token 预算内的目录/热点概览
     [switch]$Viz,   # 建图后启动本地交互式可视化服务
-    [switch]$Check  # 只做「图谱是否过时」检查（CI 用），不重建
+    [switch]$Check  # 只做「图谱是否过时」检查，不重建；exit 1 = 已过时
+                    # ⚠️ 用于**本地**开工前/提交前，不要加进 CI：graft/ 不入库，
+                    #    CI 上没有既有图谱可比对（详见 GRAFT_USAGE.md「团队约定与注意事项」）
 )
 
 $ErrorActionPreference = 'Stop'
@@ -37,10 +40,30 @@ function ConvertTo-WslPath([string]$winPath) {
 
 $WslRoot = ConvertTo-WslPath $RepoRoot
 
-# 检查 WSL 与 graft 可用性
+# 检查 WSL 可用性与内部 graft 安装状态（Issue #70：分开两种故障提示）
+$wslCmd = Get-Command wsl.exe -ErrorAction SilentlyContinue
+$wslInstalled = $false
+if ($null -ne $wslCmd) {
+    try {
+        $null = wsl.exe --status 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            $wslInstalled = $true
+        }
+    } catch {
+        $wslInstalled = $false
+    }
+}
+
+if (-not $wslInstalled) {
+    Write-Warning "本机未检测到可用的 WSL（适用于 Linux 的 Windows 子系统）。"
+    Write-Warning "指引：请先在 Windows 安装 WSL，或按 PR 模板 §4 豁免标准提供「人工等价爆炸半径」。"
+    exit 1
+}
+
 $graftVer = (wsl bash -lc 'graft version 2>/dev/null' | Out-String).Trim()
-if ($LASTEXITCODE -ne -1 -and [string]::IsNullOrWhiteSpace($graftVer)) {
-    Write-Warning "WSL 内未检测到 graft，请先在 WSL 执行: npm i -g @nanonets/graft"
+if ([string]::IsNullOrWhiteSpace($graftVer)) {
+    Write-Warning "WSL 已就绪，但 WSL 内部未检测到 graft 工具。"
+    Write-Warning "指引：请在 WSL 终端内执行全局安装: npm i -g @nanonets/graft"
     exit 1
 }
 Write-Host "graft: $graftVer  |  repo(WSL): $WslRoot" -ForegroundColor DarkGray

@@ -1,6 +1,7 @@
 package com.smartqa.platform.service.rag;
 
 import com.smartqa.platform.config.RagConfigProperties;
+import dev.langchain4j.data.document.BlankDocumentException;
 import dev.langchain4j.data.document.Document;
 import dev.langchain4j.data.document.DocumentParser;
 import dev.langchain4j.data.document.DocumentSplitter;
@@ -61,6 +62,9 @@ public class DocumentIngestionService {
     private final EmbeddingModel embeddingModel;
     private final EmbeddingStore<TextSegment> embeddingStore;
     private final RagConfigProperties ragProps;
+    private final MarkdownBreadcrumbSplitter markdownSplitter;
+    private final InMemoryBm25Service bm25Service;
+    private final SemanticCacheService semanticCacheService;
 
     /** 带解析上限的 Tika 解析器（每次 parse 时 supplier 新建组件，线程安全可复用） */
     private final DocumentParser parser;
@@ -75,9 +79,37 @@ public class DocumentIngestionService {
     public DocumentIngestionService(EmbeddingModel embeddingModel,
                                     EmbeddingStore<TextSegment> embeddingStore,
                                     RagConfigProperties ragProps) {
+        this(embeddingModel, embeddingStore, ragProps, new MarkdownBreadcrumbSplitter(), new InMemoryBm25Service(), new SemanticCacheService());
+    }
+
+    public DocumentIngestionService(EmbeddingModel embeddingModel,
+                                    EmbeddingStore<TextSegment> embeddingStore,
+                                    RagConfigProperties ragProps,
+                                    MarkdownBreadcrumbSplitter markdownSplitter) {
+        this(embeddingModel, embeddingStore, ragProps, markdownSplitter, new InMemoryBm25Service(), new SemanticCacheService());
+    }
+
+    public DocumentIngestionService(EmbeddingModel embeddingModel,
+                                    EmbeddingStore<TextSegment> embeddingStore,
+                                    RagConfigProperties ragProps,
+                                    MarkdownBreadcrumbSplitter markdownSplitter,
+                                    InMemoryBm25Service bm25Service) {
+        this(embeddingModel, embeddingStore, ragProps, markdownSplitter, bm25Service, new SemanticCacheService());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public DocumentIngestionService(EmbeddingModel embeddingModel,
+                                    EmbeddingStore<TextSegment> embeddingStore,
+                                    RagConfigProperties ragProps,
+                                    MarkdownBreadcrumbSplitter markdownSplitter,
+                                    InMemoryBm25Service bm25Service,
+                                    SemanticCacheService semanticCacheService) {
         this.embeddingModel = embeddingModel;
         this.embeddingStore = embeddingStore;
         this.ragProps = ragProps;
+        this.markdownSplitter = markdownSplitter;
+        this.bm25Service = bm25Service;
+        this.semanticCacheService = semanticCacheService;
 
         RagConfigProperties.Ingest limits = ragProps.getIngest();
         // BodyContentHandler(writeLimit)：Tika 写出文本超过上限即抛 WriteLimitReachedException，
@@ -101,6 +133,10 @@ public class DocumentIngestionService {
      * @param docId        课件记录 ID（写入 Metadata，级联删除依赖此键；由成员 B 的 course_document 主键提供）
      * @param uploadedBy   上传用户 ID（审计用途）
      * @return 实际入库的文本块数量
+     * @throws RuntimeException 解析失败或三层上限被触发时抛出，message 为<b>面向用户</b>的明确原因
+     *                          （由 Controller 捕获后写入 {@code course_document.error_msg}）。
+     *                          <b>注意</b>：内容为空/无文字层同样走抛异常（Issue #55），
+     *                          不再返回 0 —— 否则课件会以 CHUNKED + chunkCount=0 静默通过。
      */
     public int ingest(InputStream inputStream, String fileName, Long courseId, Long docId, Long uploadedBy) {
         log.info("[RAG-Ingest] 开始解析课件文件: {}, courseId={}, docId={}, uploadedBy={}",
@@ -111,13 +147,48 @@ public class DocumentIngestionService {
 
         String text = document.text();
         if (text == null || text.isBlank()) {
-            log.warn("[RAG-Ingest] 文件内容为空或无法提取文本，跳过入库: {}", fileName);
-            return 0;
+            // 正常来说解析器会先抛 BlankDocumentException（见 translateParseError 对应分支），
+            // 这里只是兜底。**解析路径上不能 return 0**：那会让课件以 CHUNKED + chunkCount=0
+            // 的形态静默通过，教师在课件管理页看到"已就绪"却检索不到任何内容（Issue #55）。
+            log.warn("[RAG-Ingest] 文件内容为空或无法提取文本: {}", fileName);
+            throw new RuntimeException(blankTextMessage(fileName));
         }
         log.info("[RAG-Ingest] Tika 解析完成，文本长度: {} 字符", text.length());
 
         // ── 第二步：切块 → 元数据注入 → 向量化 → 写入 ────────────────────────
         return splitEmbedAndStore(text, fileName, courseId, docId);
+    }
+
+    /**
+     * 以三层安全上限解析文档、只返回纯文本（不切块、不向量化）。
+     *
+     * <p><b>为何存在</b>：学生问答附件线（{@code AttachmentController.extractTextFromDoc}）一开始
+     * 自己起了一套 Tika 解析，<b>只限输出字符数、没有输入字节上限也没有超时</b>，
+     * 等于在课件链路之外开了第二个不受守卫的解析入口（一份恶意文档就能长占 Tomcat 工作线程）。
+     * 上限机制只应有一份实现：需要解析文本就调本方法。</p>
+     *
+     * <p>预算直接复用课件配置（{@code rag.ingest.*}：输入 20MB / 提取 50 万字符 / 120s 超时），
+     * 不再另加一套“看起来更宽松”的参数 —— 否则上限会随时间各自漂移。</p>
+     *
+     * @param inputStream   文档输入流（由调用方负责关闭）
+     * @param fileName      仅用于错误信息定位
+     * @param maxOutputChars 返回前截断的字符数（面向大模型上下文的小预算）
+     * @return 提取并扁平化（连续空白合并为单空格）后的文本，可能为空串
+     * @throws RuntimeException 超出任一安全上限或文件不可解析（沿用课件链路的明确中文提示）
+     */
+    public String extractPlainTextWithLimits(InputStream inputStream, String fileName, int maxOutputChars) {
+        Document document = parseWithLimits(inputStream, fileName);
+        String text = document.text();
+        if (text == null || text.isBlank()) {
+            // 不抛异常：附件是“锦上添花”的上下文，提取不到内容不应阻断上传本身
+            log.warn("[RAG-Extract] 未提取到文本内容: {}", fileName);
+            return "";
+        }
+        String flattened = text.replaceAll("\\s+", " ").trim();
+        if (maxOutputChars > 0 && flattened.length() > maxOutputChars) {
+            return flattened.substring(0, maxOutputChars) + "...(后文省略)";
+        }
+        return flattened;
     }
 
     /**
@@ -154,8 +225,16 @@ public class DocumentIngestionService {
     /**
      * 将 Tika 解析异常翻译为面向用户的明确错误信息。
      * langchain4j 会把底层异常包在 RuntimeException 里，因此需要沿 cause 链识别具体超限类型。
+     *
+     * <p>【Issue #55】这里必须把「格式支持、但内容里没有文字」与「文件损坏 / 内容无法识别」
+     * 分开报。上传白名单已限定 {@code pdf|docx|md|txt}，所以"格式不对"这条路径用户根本走不到；
+     * 早期把两类原因合并成一句「请检查文件格式」，会把扫描件用户引向反复换格式、无法自助排查。</p>
+     *
+     * <p>【Issue #74】系统/框架依赖故障分流：
+     * 区分"文件本身的问题"与"系统级/依赖级故障"（如 NoClassDefFoundError、NoSuchMethodError、ClassNotFoundException）。
+     * 出现此类问题是服务端依赖损坏或装配故障，绝不能提示用户"文件已损坏或加密"误导用户重复尝试。</p>
      */
-    private RuntimeException translateParseError(Throwable cause, String fileName) {
+    RuntimeException translateParseError(Throwable cause, String fileName) {
         if (findInChain(cause, WriteLimitReachedException.class) != null) {
             return new RuntimeException("课件文本内容超过解析上限（"
                     + ragProps.getIngest().getMaxTextChars() + " 字符），请拆分后重新上传: " + fileName);
@@ -164,8 +243,36 @@ public class DocumentIngestionService {
             return new RuntimeException("课件文件超过解析大小上限（"
                     + (ragProps.getIngest().getMaxFileBytes() / 1024 / 1024) + " MB），请拆分后重新上传: " + fileName);
         }
+        // 【Issue #55】"无文本层"的精确判据：langchain4j 的 ApacheTikaDocumentParser 在
+        // 提取到空白文本时抛 BlankDocumentException（已实测复现：3 页空白 PDF 与纯空白 txt
+        // 都命中本分支，而格式其实完全合法）。
+        if (findInChain(cause, BlankDocumentException.class) != null) {
+            log.warn("[RAG-Ingest] 未提取到文本内容（可能是扫描件/纯图片，或文件已损坏）: {}", fileName);
+            return new RuntimeException(blankTextMessage(fileName));
+        }
+        // 【Issue #74】系统组件与依赖缺失类致命故障：不再推责给用户的文件损坏/加密
+        if (findInChain(cause, LinkageError.class) != null || findInChain(cause, ClassNotFoundException.class) != null) {
+            log.error("[RAG-Ingest][SYS-INGEST-DEP] 系统依赖/组件异常导致课件解析失败, fileName={}", fileName, cause);
+            return new RuntimeException("系统组件异常，暂时无法解析该文件，已将问题记录给维护人员，"
+                    + "请稍后重试或联系管理员 (SYS-INGEST-DEP): " + fileName, cause);
+        }
         log.error("[RAG-Ingest] 文件解析失败: {}", fileName, cause);
-        return new RuntimeException("课件文件解析失败，请检查文件格式: " + fileName, cause);
+        // 走到这里既没超限、也不是"无文本"，更不是系统组件级故障，剩下的常见原因是文件损坏 / 加密 / 内容无法识别。
+        // 措辞不再暗示"格式不对"（Issue #55）：格式在上传入口已校验过。
+        return new RuntimeException("课件文件解析失败：文件内容无法识别（可能已损坏或加密），"
+                + "请确认该文件能正常打开后重试: " + fileName, cause);
+    }
+
+    /**
+     * 「未提取到文本」的统一文案（Issue #55）：问题出在没有文字层，与文件格式无关。
+     *
+     * <p>⚠️ 实测发现 Tika 相当宽容：损坏的包格式文件（如内容乱码的 docx）往往**不抛异常、
+     * 只是提取到空文本**，同样落到本文案。所以措辞里带上"或文件已损坏"，避免把这类用户
+     * 引向"扫描件"这一条错误方向。</p>
+     */
+    private static String blankTextMessage(String fileName) {
+        return "未从课件中提取到文本内容（可能是扫描件/纯图片，或文件已损坏），"
+                + "请上传含文字层且能正常打开的文件后重试: " + fileName;
     }
 
     /** 沿异常 cause 链查找指定类型（含自引用环防护） */
@@ -271,14 +378,26 @@ public class DocumentIngestionService {
      *      chunkIndex 等差异化元数据；手动 split → embedAll → addAll 是等价正式 API。
      */
     private int splitEmbedAndStore(String text, String fileName, Long courseId, Long docId) {
-        Document document = Document.from(text);
-
         RagConfigProperties.Chunk chunkCfg = ragProps.getChunk();
-        DocumentSplitter splitter = DocumentSplitters.recursive(
-                chunkCfg.getSize(),
-                chunkCfg.getOverlap()
-        );
-        List<TextSegment> segments = splitter.split(document);
+        List<TextSegment> segments = null;
+
+        // 若为 Markdown 课件，优先尝试结构感知与层级面包屑切块
+        if (fileName != null && fileName.toLowerCase().endsWith(".md")) {
+            List<TextSegment> mdSegments = markdownSplitter.split(text, chunkCfg.getSize(), chunkCfg.getOverlap());
+            if (!mdSegments.isEmpty()) {
+                segments = mdSegments;
+            }
+        }
+
+        // 若非 Markdown 格式，或 Markdown 文本内无任何结构标题，回退至通用递归切块
+        if (segments == null || segments.isEmpty()) {
+            Document document = Document.from(text);
+            DocumentSplitter splitter = DocumentSplitters.recursive(
+                    chunkCfg.getSize(),
+                    chunkCfg.getOverlap()
+            );
+            segments = splitter.split(document);
+        }
 
         // 元数据增强：每个片段携带 课程/文档/文件名/序号 四要素
         for (int i = 0; i < segments.size(); i++) {
@@ -286,13 +405,21 @@ public class DocumentIngestionService {
             metadata.put("courseId", String.valueOf(courseId));
             metadata.put("docId", String.valueOf(docId));
             metadata.put("fileName", fileName);
-            metadata.put("chunkIndex", i);
+            // 【Issue #82】chunkIndex 必须以字符串写入，与上面 courseId / docId 保持一致。
+            // 实测：以 int 写入时，经 Chroma 的 JSON 序列化 + Gson 反序列化往返后，
+            // 取回来的是 java.lang.String 且内容为 "3.0"，导致读取侧 parseInt 失败、
+            // 教师端引用详情显示成「第 段」。InMemory 不做 JSON 往返，故测不出该差异。
+            // 读取侧（SseStreamService.parseIntOrNull）同时做了兼容，以覆盖已入库的历史数据。
+            metadata.put("chunkIndex", String.valueOf(i));
         }
 
         List<Embedding> embeddings = embeddingModel.embedAll(segments).content();
         embeddingStore.addAll(embeddings, segments);
+        bm25Service.addSegments(courseId, docId, segments);
+        semanticCacheService.invalidateCourse(courseId);
 
-        log.info("[RAG-Ingest] 向量入库完成，fileName={}, docId={}, 共 {} 个片段", fileName, docId, segments.size());
+        log.info("[RAG-Ingest] 向量与BM25入库完成，课件语义缓存已刷新，fileName={}, docId={}, 共 {} 个片段",
+                fileName, docId, segments.size());
         return segments.size();
     }
 
@@ -304,6 +431,7 @@ public class DocumentIngestionService {
      */
     public void removeDocumentVectors(Long docId) {
         embeddingStore.removeAll(new IsEqualTo("docId", String.valueOf(docId)));
-        log.info("[RAG-Ingest] 课件向量切块已级联清理, docId={}", docId);
+        bm25Service.removeByDocId(docId);
+        log.info("[RAG-Ingest] 课件向量与BM25索引已级联清理, docId={}", docId);
     }
 }

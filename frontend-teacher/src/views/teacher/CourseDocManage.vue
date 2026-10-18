@@ -26,16 +26,22 @@
       description="课件仍在后台切块中，请点「刷新」查看最新状态。"
     />
 
+    <!--
+      列宽预算（Issue #48）：容器的可用宽度 = 视口 − 220（侧栏）− 40（main padding）− 40（.doc-manage padding）
+      = 视口 − 300。各列最小宽度之和必须小于该值，否则 el-table 出现横向滚动，
+      fixed="right" 的操作列会浮在上层遮住「上传时间」尾部（尤其 1330px 及以下视口）。
+      下列宽度经 1280 / 1366 / 1440 三档视口实测，均不重叠且文本完整。
+    -->
     <el-table v-loading="loading" :data="docList" stripe border class="doc-table">
-      <el-table-column prop="id" label="ID" width="80" />
-      <el-table-column prop="fileName" label="课件文件名" min-width="220" show-overflow-tooltip />
-      <el-table-column prop="fileType" label="类型" width="90">
+      <el-table-column prop="id" label="ID" width="60" />
+      <el-table-column prop="fileName" label="课件文件名" min-width="180" show-overflow-tooltip />
+      <el-table-column prop="fileType" label="类型" width="76">
         <template #default="{ row }">
           <el-tag size="small">{{ String(row.fileType).toUpperCase() }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="chunkCount" label="切块片段数" width="120" />
-      <el-table-column prop="parseStatus" label="知识库状态" width="180">
+      <el-table-column prop="chunkCount" label="切块片段数" width="100" />
+      <el-table-column prop="parseStatus" label="知识库状态" width="165">
         <template #default="{ row }">
           <el-tag v-if="row.parseStatus === 'CHUNKED'" type="success">已就绪 (RAG可用)</el-tag>
           <el-tag v-else-if="row.parseStatus === 'PARSING'" type="warning">切块向量化中...</el-tag>
@@ -45,8 +51,10 @@
           </el-tooltip>
         </template>
       </el-table-column>
-      <el-table-column prop="createdAt" label="上传时间" width="180" />
-      <el-table-column label="操作" width="170" fixed="right">
+      <el-table-column label="上传时间" width="180">
+        <template #default="{ row }">{{ formatDateTime(row.createdAt) }}</template>
+      </el-table-column>
+      <el-table-column label="操作" width="155" fixed="right">
         <template #default="{ row }">
           <!-- 后端 reindex 无状态机守卫，对 PARSING/PENDING 中的课件再点会并发两次切块产生重复切片，故禁用 -->
           <el-button
@@ -89,6 +97,7 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 
 import { deleteDoc, fetchDocList, reindexDoc } from '@/api/teacher';
 import { useCourseStore } from '@/stores/course';
+import { formatDateTime } from '@/utils/format';
 import DocUploadModal from './components/DocUploadModal.vue';
 import type { CourseDoc } from '@/types';
 
@@ -109,6 +118,16 @@ let pollTimer: number | null = null;
 let unmounted = false;
 /** 本轮自动轮询的截止时间戳 */
 let pollDeadline = 0;
+
+/**
+ * 课件列表请求序号：只接受「最新一次」请求的响应。
+ *
+ * 无守卫时的故障（复核 P1-3）：连续切课程时，先发出的旧课程请求若响应更慢，
+ * 后到时会把新课程的列表覆盖掉 —— 表现为下拉显示 B 课程、表格却是 A 课程的课件，
+ * 用户可能看着错列表点「删除 / 重建索引」（作用到另一门课的课件上）。
+ * 与 `chatStore` 的 `recordsToken` 是同一范式。
+ */
+let listReqSeq = 0;
 /** 是否已因超时停止自动轮询（用于渲染提示条） */
 const pollExpired = ref(false);
 
@@ -122,18 +141,34 @@ const hasPendingTask = computed(() =>
  * 拉取课件列表。
  * @param silent 轮询刷新传 true：不触发 loading 遮罩、不弹错误提示，
  *               避免表格每 3 秒闪一次遮罩（PR #27 评审）；失败静默，等下次轮询或手动刷新。
+ *
+ * 并发守卫（复核 P1-3）：只接受「最新一次」请求的响应。
  */
 async function loadDocs(silent = false): Promise<void> {
   const courseId = currentCourseId.value;
   if (courseId === null) return;
 
+  // 只有「用户主动动作」（切课程 / 手动刷新 / 上传后刷新）才推进课程代；
+  // 自动轮询（silent）**不推进** —— 否则慢网络（响应耗时 > 3s 轮询间隔）下，
+  // 每个在途响应返回时都已被后续轮询作废 → 被守卫丢弃 → syncPolling() 永不执行，
+  // 于是「2 分钟超时保护」与「列表刷新」双双失效（后端已 CHUNKED，页面仍停在处理中）。
+  // 轮询是同一课程的重复请求，本就不需要互相作废；只有切课程才需要（复核 P2）。
+  if (!silent) listReqSeq += 1;
+  const seq = listReqSeq;
   if (!silent) loading.value = true;
   try {
-    docList.value = await fetchDocList(courseId);
+    const list = await fetchDocList(courseId);
+    // 过期响应：期间用户切过课程（或手动刷新过）→ 丢弃，不写 docList、不触发 syncPolling
+    if (seq !== listReqSeq) return;
+    docList.value = list;
     syncPolling();
   } catch {
+    // 过期请求的失败同样静默：它对应的课程已经不是当前课程了
+    if (seq !== listReqSeq) return;
     if (!silent) ElMessage.error('课件列表加载失败');
   } finally {
+    // loading 不参与序号守卫 —— 自己开的自己关。若纳入守卫，一旦被轮询的 silent 请求
+    // 接管（silent 请求不开也不关遮罩），loading 将永远关不掉。
     if (!silent) loading.value = false;
   }
 }
@@ -175,8 +210,15 @@ function syncPolling(): void {
   }
 }
 
-/** 手动刷新：重置 2 分钟窗口后重新拉取列表 */
+/**
+ * 手动刷新：重置 2 分钟窗口后重新拉取列表。
+ *
+ * 必须连 `pollDeadline` 一起重置（复核 P2-3）：只清 `pollExpired` 不够 —— 若此刻恰好
+ * 已越过 `pollDeadline`，紧接着的 `syncPolling()` 会立刻再次判定超时并把 `pollExpired`
+ * 置回 true，用户看到的是「点了刷新却提示已停止自动刷新」，且轮询不恢复。
+ */
 async function refreshManually(): Promise<void> {
+  pollDeadline = Date.now() + POLL_MAX_DURATION_MS;
   pollExpired.value = false;
   await loadDocs();
 }

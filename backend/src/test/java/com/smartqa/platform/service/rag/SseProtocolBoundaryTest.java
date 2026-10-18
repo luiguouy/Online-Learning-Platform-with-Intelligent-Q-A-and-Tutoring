@@ -29,7 +29,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * SSE question 查询串「业务上限」真实协议栈回归测试（PR#41 审查 H1 修复配套）。
  *
  * <p>SseWiringIntegrationTest 走 MockMvc：参数直塞 parameterMap，<b>完全绕过</b>
- * Tomcat {@code Http11InputBuffer.parseRequestLine}，覆盖不到「请求真正经协议层进来后
+ * Tomcat {@code Http11InputBuffer} 的请求行/请求头长度校验（{@code fill()} / {@code parseHeaders()}
+ * 比较 {@code byteBuffer} 位置与 {@code headerBufferSize}），覆盖不到「请求真正经协议层进来后
  * 能否拿到友好业务码」这条链路。本类以 RANDOM_PORT + TestRestTemplate 起<b>真实 HTTP 栈</b>，
  * 端到端锁定 B3.1「超长提问从无信息断连改为 event:error {errorCode:4000} 友好返回」：</p>
  * <ol>
@@ -38,9 +39,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *       提问都落进友好返回区间，不会退化成无信息断连。</li>
  * </ol>
  *
- * <p><b>为何不断言「协议上限外返回 431」</b>：本机实测（Tomcat 10.1，{@code max-http-request-header-size=64KB}）
- * 的请求行上限远高于早前估计——2200 字（≈20KB 请求行）仍能进到 Controller，直到约 72KB 才在容器层被拒，
- * 且返回 <b>400 而非 431</b>。该阈值与状态码随 Tomcat 版本/配置漂移，硬钉它既脆弱又是在测容器而非本项目代码。
+ * <p><b>为何不断言「协议上限外返回 431」</b>：本机实测（原始 socket 二分 + 精确记账；
+ * Tomcat 10.1 / Spring Boot 3.3.5，{@code max-http-request-header-size=64KB}）的请求头块上限为
+ * <b>65536 字节，恰好等于配置值（1:1）</b>，计数口径是「请求行 + 所有请求头 + 各行 CRLF + 结束空行」之和；
+ * 超限返回 <b>HTTP 400 而非 431</b>。2200 字中文（≈20KB）距天花板尚远，故能进到 Controller。
+ * 该阈值完全由容器配置决定、并随 Tomcat 版本漂移，硬钉它既脆弱又是在测容器而非本项目代码。
  * 因此本类只断言<b>稳定的业务层友好返回</b>；协议层的具体天花板交由部署环境的容器配置决定。</p>
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)

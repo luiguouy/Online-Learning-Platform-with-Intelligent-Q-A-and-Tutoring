@@ -59,23 +59,35 @@ public class QaSessionServiceImpl extends ServiceImpl<QaSessionMapper, QaSession
         return session.getId();
     }
 
+    @jakarta.annotation.Resource
+    private com.smartqa.platform.mapper.QaRecordMapper qaRecordMapper;
+
     @Override
     public List<SessionVO> listMySessions(Long courseId, Long userId) {
+        return listMySessions(courseId, userId, null);
+    }
+
+    @Override
+    public List<SessionVO> listMySessions(Long courseId, Long userId, Integer isArchived) {
         if (courseId == null) {
             throw new BusinessException("课程ID不能为空");
         }
         if (userId == null) {
             throw new BusinessException(401, "未取到登录用户，无法查询会话");
         }
-        List<QaSession> sessions = list(Wrappers.<QaSession>lambdaQuery()
+        var query = Wrappers.<QaSession>lambdaQuery()
                 .eq(QaSession::getCourseId, courseId)
-                .eq(QaSession::getUserId, userId)
-                .orderByDesc(QaSession::getUpdatedAt));
+                .eq(QaSession::getUserId, userId);
+        if (isArchived != null) {
+            query.eq(QaSession::getIsArchived, isArchived);
+        }
+        List<QaSession> sessions = list(query.orderByDesc(QaSession::getUpdatedAt));
         return sessions.stream()
                 .map(s -> SessionVO.builder()
                         .id(s.getId())
                         .courseId(s.getCourseId())
                         .sessionTitle(s.getSessionTitle())
+                        .isArchived(s.getIsArchived() == null ? 0 : s.getIsArchived())
                         .createdAt(s.getCreatedAt())
                         .updatedAt(s.getUpdatedAt())
                         .build())
@@ -84,6 +96,11 @@ public class QaSessionServiceImpl extends ServiceImpl<QaSessionMapper, QaSession
 
     @Override
     public QaSession getOwnedSession(Long sessionId, Long userId) {
+        return getOwnedSession(sessionId, userId, null);
+    }
+
+    @Override
+    public QaSession getOwnedSession(Long sessionId, Long userId, Long courseId) {
         if (sessionId == null) {
             throw new BusinessException("会话ID不能为空");
         }
@@ -91,8 +108,18 @@ public class QaSessionServiceImpl extends ServiceImpl<QaSessionMapper, QaSession
         if (session == null) {
             throw new BusinessException(404, "会话不存在");
         }
+        // 归属校验必须先于课程校验：否则越权者能用「400 不属于当前课程」与「404 不存在」
+        // 的差异探到他人会话的存在性与所属课程。
         if (!Objects.equals(session.getUserId(), userId)) {
             throw new BusinessException(403, "无权查看他人会话");
+        }
+        // 【#57 二】课程一致性校验：拦下「旧课程 sessionId + 新课程 courseId」的跳课混写。
+        // 走 400 而不是静默新建会话：静默自愈会把前端守卫缺失（#59）掩盖掉，
+        // 且学生看不出自己的提问落到了哪里；显式拒绝 + 可执行提示更安全。
+        if (courseId != null && !Objects.equals(session.getCourseId(), courseId)) {
+            log.warn("会话与当前课程不一致，已拒绝, sessionId={}, sessionCourseId={}, requestCourseId={}, userId={}",
+                    sessionId, session.getCourseId(), courseId, userId);
+            throw new BusinessException(400, "会话不属于当前课程，请刷新页面后重试");
         }
         return session;
     }
@@ -105,6 +132,29 @@ public class QaSessionServiceImpl extends ServiceImpl<QaSessionMapper, QaSession
         update(Wrappers.<QaSession>lambdaUpdate()
                 .eq(QaSession::getId, sessionId)
                 .set(QaSession::getUpdatedAt, LocalDateTime.now()));
+    }
+
+    @Override
+    public void deleteSession(Long sessionId, Long userId) {
+        QaSession session = getOwnedSession(sessionId, userId);
+        // 软删除会话本身
+        removeById(session.getId());
+        // 级联软删除会话关联的所有问答记录
+        qaRecordMapper.delete(Wrappers.<com.smartqa.platform.entity.QaRecord>lambdaQuery()
+                .eq(com.smartqa.platform.entity.QaRecord::getSessionId, session.getId()));
+        log.info("会话已删除: sessionId={}, userId={}", sessionId, userId);
+    }
+
+    @Override
+    public int toggleArchive(Long sessionId, Long userId) {
+        QaSession session = getOwnedSession(sessionId, userId);
+        int current = session.getIsArchived() == null ? 0 : session.getIsArchived();
+        int target = current == 1 ? 0 : 1;
+        update(Wrappers.<QaSession>lambdaUpdate()
+                .eq(QaSession::getId, sessionId)
+                .set(QaSession::getIsArchived, target));
+        log.info("会话归档状态变更: sessionId={}, isArchived: {} -> {}", sessionId, current, target);
+        return target;
     }
 
     /** 标题取提问前 15 个字符；提问为空时回落到默认标题 */
@@ -121,8 +171,10 @@ public class QaSessionServiceImpl extends ServiceImpl<QaSessionMapper, QaSession
     /**
      * 取当前登录用户 ID。
      *
-     * <p>Sa-Token 登录态存于 ThreadLocal，异步线程里取不到，
-     * 因此这里抛的是带指引的 401，而不是让人摸不着头脑的 NPE。</p>
+     * <p>
+     * Sa-Token 登录态存于 ThreadLocal，异步线程里取不到，
+     * 因此这里抛的是带指引的 401，而不是让人摸不着头脑的 NPE。
+     * </p>
      */
     private Long currentUserId() {
         if (!StpUtil.isLogin()) {

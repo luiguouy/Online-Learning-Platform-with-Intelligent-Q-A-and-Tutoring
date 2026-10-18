@@ -1,0 +1,64 @@
+# ============================================================================
+# 生产 / 公网部署 profile
+#
+# 启用方式：java -jar smart-qa-platform.jar --spring.profiles.active=prod
+#          （或在环境变量里设 SPRING_PROFILES_ACTIVE=prod）
+#
+# 设计原则：**凡是会被公网利用的"开发便利默认值"，在这一份里一律取消兜底**。
+# 缺配置就让应用启动失败，而不是带着弱口令 / 开放的接口文档上线 ——
+# 启动失败是可发现的故障，带病上线是不可发现的事故。
+#
+# 本文件只写「与 application.yml 默认值不同」的项，其余继承主配置。
+# ============================================================================
+
+spring:
+  datasource:
+    # 主配置的 ${MYSQL_PASSWORD:123456} 是为本地容器和 CI 准备的（.env.example 里该项默认注释掉，
+    # CI 在 .github/workflows/ci.yml 显式注入）。生产沿用这个默认值等于公开一个已知口令，
+    # 所以这里不给默认值：MYSQL_PASSWORD 未设置 → Hikari 建池失败 → 应用起不来。
+    password: ${MYSQL_PASSWORD}
+    # 主配置 url 里的 ${MYSQL_HOST:localhost} 等默认值同样不适合生产，这里整体覆盖为无默认值版本。
+    # 注意 characterEncoding 必须是 Java 字符集名 UTF-8（写 utf8mb4 会被 Connector/J 8.x 拒绝）。
+    url: jdbc:mysql://${MYSQL_HOST}:${MYSQL_PORT}/${MYSQL_DB:smart_qa}?useUnicode=true&characterEncoding=UTF-8&useSSL=${MYSQL_USE_SSL:true}&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+
+server:
+  # 应用位于 nginx 等反向代理之后时必须信任转发头，否则 request.getRemoteAddr() 拿到的永远是
+  # 代理机地址，AuthRateLimitInterceptor 的 IP 维度限流会退化成"全站共用一份额度"。
+  # 用 native（交由容器/Servlet 引擎处理）而不是自行读 X-Forwarded-For —— 后者客户端可伪造。
+  forward-headers-strategy: native
+  servlet:
+    session:
+      cookie:
+        # 当前令牌只走 Authorization 头（sa-token.is-read-cookie=false），本项暂不参与认证；
+        # 若将来改用 Cookie 传令牌，必须同时收紧 Sa-Token 的 is-read-cookie 与 CSRF 防护。
+        secure: true
+        http-only: true
+        same-site: lax
+
+app:
+  cors:
+    # 主配置默认放行 localhost 任意端口（开发所需）。生产必须显式给出真实前端域名，
+    # 且配合上面的凭据策略——不给默认值，漏配即启动失败。
+    allowed-origin-patterns: ${CORS_ALLOWED_ORIGINS}
+  security:
+    # 生产是 HTTPS 部署，打开 HSTS 让浏览器后续强制走 https（防降级与首访劫持）。
+    # 不给 includeSubDomains：子域口径属于运维决策，不得在代码里替他们定。
+    hsts-enabled: true
+
+# ============================================================================
+# 接口文档：生产一律关闭
+#
+# SaTokenConfigure 的鉴权白名单里放行了 /doc.html 与 /v3/api-docs/**（这是开发调试必需的），
+# 所以"关掉文档"不能靠鉴权兜底，必须从源头禁用：否则一把 URL 就能拿到全量接口契约、
+# 字段校验规则和可在线发起请求的调试台。
+# ============================================================================
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+knife4j:
+  enable: false
+  # 双保险：即便 springdoc 被某个依赖重新启用，Knife4j 文档资源也直接不可访问
+  production: true

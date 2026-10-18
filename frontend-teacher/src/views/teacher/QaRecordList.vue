@@ -40,7 +40,7 @@
         </template>
       </el-table-column>
       <el-table-column label="提问时间" width="170">
-        <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
+        <template #default="{ row }">{{ formatDateTime(row.createdAt) }}</template>
       </el-table-column>
       <el-table-column label="学生反馈" width="95">
         <template #default="{ row }">
@@ -94,6 +94,7 @@ import { ElMessage } from 'element-plus';
 
 import { fetchQaRecords } from '@/api/teacher';
 import { useCourseStore } from '@/stores/course';
+import { formatDateTime } from '@/utils/format';
 import type { QaRecord, SseReference } from '@/types';
 
 /** 分页大小固定 10（后端 pageSize 默认值一致） */
@@ -148,12 +149,6 @@ function plainAnswer(answer: string): string {
     .replace(/^\s*[-*+]\s+/gm, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-}
-
-/** 后端 createdAt 为 ISO 格式（如 2026-09-17T09:44:47），转成易读的「日期 时间」 */
-function formatTime(value: string): string {
-  if (!value) return '—';
-  return value.replace('T', ' ').slice(0, 19);
 }
 
 async function loadRecords(): Promise<void> {
