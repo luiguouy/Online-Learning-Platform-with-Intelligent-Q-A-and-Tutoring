@@ -208,6 +208,8 @@ import {
 import { getUserProfile, updateUserProfile, uploadAvatar } from '@/api/user';
 import { useUserStore } from '@/stores/userStore';
 import type { UserProfile } from '@/types';
+// 昵称规则与注册页、后端 ValidNickname 同一来源，不在本文件重复写一遍
+import { validateNickname } from '@/utils/validators';
 
 const router = useRouter();
 const userStore = useUserStore();
@@ -237,7 +239,9 @@ let originalProfile: UserProfile | null = null;
 const formRules: FormRules = {
   nickname: [
     { required: true, message: '请输入学生昵称', trigger: 'blur' },
-    { min: 1, max: 30, message: '昵称长度须在 1 到 30 个字符之间', trigger: 'blur' },
+    // 长度与字符卫生均交给共享规则（与后端同一口径）；
+    // 以前这里只卡 1-30 长度，会出现“前端能提交、后端 400”的割裂
+    { validator: validateNickname, trigger: 'blur' },
   ],
   bio: [
     // 上限与后端 UpdateProfileDTO 的 @Size(max=150) 一致，改一边必须同步另一边
