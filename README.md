@@ -120,15 +120,15 @@ flowchart TD
 
 | 层次 | 核心技术 / 框架 | 说明 |
 | :--- | :--- | :--- |
-| **后端架构** | Spring Boot `3.3.5`, Java `21` | 现代长期支持版本，分层架构 |
-| **安全与认证** | Sa-Token `1.39.0` | 轻量化、高性能权限验证框架 |
+| **后端架构** | Spring Boot `3.3.5`, Java `17` | 与 `backend/pom.xml` 及 CI （temurin 17）一致；分层单体，不拆微服务 |
+| **安全与认证** | Sa-Token `1.38.0` | 轻量化鉴权；令牌只走 Authorization 头，会话存服务端 |
 | **数据访问** | MyBatis-Plus `3.5.7`, MySQL `8.0+` | 简化 CRUD，自动实体映射与分页 |
-| **缓存与限流** | Spring Data Redis, Redisson | 分布式会话、高频接口滑动窗口限流 |
+| **限流与会话缓存** | 进程内实现（JDK 并发容器 + 自研语义缓存） | **无 Redis / Redisson 依赖**；单实例固定窗口计数，横向扩容时才需改 Redis 集中计数 |
 | **AI 与 RAG** | LangChain4j `0.35.0` | 大模型编排与向量管道对接 |
 | **向量模型** | `BAAI/bge-small-zh-v1.5` (512 Dim) | 中文语义匹配表现极佳的开源嵌入模型 |
 | **倒排检索** | 自研 `InMemoryBm25Service` | 中文分词与专用词高频倒排匹配 |
 | **前端工程** | Vue `3.4+`, TypeScript `5.x`, Vite `5.x` | 现代化构建流水线，全面支持类型约束 |
-| **前端 UI 体系** | Tailwind CSS / Element Plus / Lucide 图标 | 现代学院质感风格与响应式排版 |
+| **前端 UI 体系** | Element Plus `2.6+` 与其官方图标库 + 自写 CSS 变量 | 响应式排版；**未引入 Tailwind**（见 MarkdownViewer 注释） |
 
 ---
 
@@ -165,10 +165,11 @@ Online Learning Platform with Intelligent Q&A and Tutoring/
 ## 🚀 快速开始与本地运行
 
 ### 环境准备
-- **Java**: JDK 21 或更高版本
-- **Node.js**: Node.js 18.x 或更高版本（搭配 npm 或 pnpm）
+- **Java**: JDK 17（与 `backend/pom.xml` 的 `java.version` 一致；**不是 21**）
+- **Node.js**: 18.x 或更高（CI 用 20.x）
 - **MySQL**: 8.0 或更高版本
-- **Redis**: 6.0 或更高版本
+- **向量库（可选）**: Chroma `0.5.23`（未启动时应用自动降级为进程内 InMemoryEmbeddingStore，本地开发不强制）
+- **Redis**: 当前版本**不需要**（限流与语义缓存均为进程内实现）
 
 ---
 
