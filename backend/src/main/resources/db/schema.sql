@@ -70,6 +70,9 @@ CREATE TABLE IF NOT EXISTS qa_session (
     user_id BIGINT NOT NULL COMMENT '提问学生ID',
     course_id BIGINT NOT NULL COMMENT '关联课程ID',
     session_title VARCHAR(100) NOT NULL DEFAULT '新建答疑会话' COMMENT '会话标题',
+    -- 会话归档状态。对应 QaSession.isArchived（列表筛选与切换归档接口都用它）。
+    -- 已有库补列：ALTER TABLE qa_session ADD COLUMN is_archived TINYINT NOT NULL DEFAULT 0 COMMENT '归档状态: 0-未归档, 1-已归档';
+    is_archived TINYINT NOT NULL DEFAULT 0 COMMENT '归档状态: 0-未归档, 1-已归档',
     is_deleted TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -109,3 +112,8 @@ CREATE TABLE IF NOT EXISTS course_knowledge_point (
 
 -- 自检：应输出 6 行
 SHOW TABLES;
+
+-- ⚠ 维护约束：本文件是库结构的唯一真相。**实体加字段必须同步改这里的 DDL**，
+-- 否则本地库（手工 ALTER 过）看不出问题，CI 用本文件建新库时则直接报 Unknown column。
+-- 已踩过两次：sys_user.bio、qa_session.is_archived。
+-- 本地自检方法：新建一个空库并只跑本文件 + data.sql，再拿它跑一次 mvn test（与 CI 同构）。
