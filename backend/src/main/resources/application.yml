@@ -36,6 +36,10 @@ server:
 spring:
   application:
     name: smart-qa-platform
+  # 直接读取 backend/.env（KEY=VALUE 与 properties 语法兼容，# 开头自动视为注释）。
+  # 这样无需 bat/ps1 逐行解析，避免编码与换行差异导致变量丢失；文件不存在时 optional 不报错。
+  config:
+    import: optional:file:./.env[.properties]
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     # characterEncoding 必须是 Java 字符集名（UTF-8）；写 utf8mb4 会被 Connector/J 8.x 拒绝并抛
@@ -103,6 +107,9 @@ rag:
     # 不再静默断流。约束：first-token < sse-timeout，且 sse-timeout > timeout-seconds。
     first-token-timeout-seconds: ${AI_FIRST_TOKEN_TIMEOUT_SECONDS:45}
     sse-timeout-seconds: ${AI_SSE_TIMEOUT_SECONDS:120}
+    # 可选 HTTP 代理，形如 http://127.0.0.1:7890；留空 = 直连。
+    # Java 不读取系统代理，访问境外端点（OpenRouter 等）时必须显式配置，否则只会看到超时或 TLS 握手中断。
+    proxy: ${AI_PROXY:}
   # 向量模型说明：已采用内置 BGE-Small-ZH 本地模型 (纯本地CPU计算，零Token费用，无远程接口依赖)
   chroma:
     base-url: http://${CHROMA_HOST:localhost}:8000
