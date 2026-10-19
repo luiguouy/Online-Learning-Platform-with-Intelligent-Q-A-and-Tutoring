@@ -24,6 +24,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.Locale;
 
 /**
  * LangChain4j 核心 Bean 装配配置
@@ -106,31 +107,60 @@ public class LangChain4jConfig {
     }
 
     /**
-     * 解析可选 HTTP 代理（{@code rag.llm.proxy} / 环境变量 {@code AI_PROXY}）。
+     * 解析可选代理（{@code rag.llm.proxy} / 环境变量 {@code AI_PROXY}）。
      *
      * <p>Java 不读取系统代理设置，访问境外端点（如 OpenRouter）时必须显式注入，
-     * 否则会以直连超时或 TLS 握手被中断的形式失败。留空则返回 {@code null}，恢复直连。</p>
+     * 否则会以直连超时或连接被重置的形式失败。留空则返回 {@code null}，恢复直连。</p>
      *
-     * <p><b>可达性探测</b>：代理客户端（Clash 等）未启动时，硬编码代理会让每次提问都以
-     * {@code ConnectException: Connection refused} 失败并回落到 5001「大模型调用异常」，
-     * 排查成本很高。故启动时先做一次 TCP 探测（500ms），不可达则改用直连并打 WARN，
-     * 使「代理没开」与「模型本身出问题」在日志上可区分。探测只在启动时执行一次，
-     * 中途启动代理需重启后端。</p>
+     * <p><b>接受的写法</b>：{@code http://127.0.0.1:7890}、{@code 127.0.0.1:7890}（省略 scheme 时按
+     * http 处理）、{@code socks5://127.0.0.1:7890}（按 {@link Proxy.Type#SOCKS} 走）。省略端口时
+     * http 默认 80、socks 默认 1080。</p>
+     *
+     * <p><b>永不阻断启动</b>：本项是可选能力，任何手误都不应让应用起不来。因此格式非法
+     * （如含有空格、非 URI 字符）、缺少主机名、端口不可达三种情况一律记 WARN 并降级直连，
+     * 而不是抛异常。三种情况的日志措辞彼此不同，便于区分「配置写错」与「代理客户端没开」。</p>
+     *
+     * <p><b>可达性探测的边界</b>：启动时只做一次 500ms 的 TCP 连通性探测，证明「端口在监听」，
+     * 不证明「代理能出网」——Clash 处于直接连接 / 规则直连模式时端口可达但境外仍不通，
+     * 此时本方法会放行，请求仍会失败。故「日志出现走代理」不等于「链路一定通」。
+     * 探测只在启动时执行一次，中途才启动代理客户端需重启后端。</p>
+     *
+     * <p>包级可见（非 private）仅为让 {@code LlmProxyResolutionTest} 能直接钉住「什么输入都不许抛异常」
+     * 这条契约——本 PR 的首版正是在这里让 {@code 127.0.0.1:7890} 抛 {@code IllegalArgumentException}
+     * 把整个应用启动搞挂的，没有用例就会复发。</p>
      */
-    private static Proxy buildProxy(String proxyUrl) {
+    static Proxy buildProxy(String proxyUrl) {
         if (proxyUrl == null || proxyUrl.isBlank()) {
             return null;
         }
-        URI uri = URI.create(proxyUrl.trim());
-        int port = uri.getPort() > 0 ? uri.getPort() : 7890;
+        String raw = proxyUrl.trim();
+        URI uri;
+        try {
+            // 允许省略 scheme：URI.create("127.0.0.1:7890") 会抛 IllegalArgumentException（冒号在
+            // 相对 URI 首段非法），而这一写法是最常见的填法，必须兼容而不是让启动失败。
+            uri = URI.create(raw.contains("://") ? raw : "http://" + raw);
+        } catch (IllegalArgumentException e) {
+            log.warn("[RAG] rag.llm.proxy 格式非法（{}），本次改为直连；正确形如 http://127.0.0.1:7890", proxyUrl);
+            return null;
+        }
+
         String host = uri.getHost();
+        if (host == null || host.isBlank()) {
+            log.warn("[RAG] rag.llm.proxy 缺少主机名（{}），本次改为直连；正确形如 http://127.0.0.1:7890", proxyUrl);
+            return null;
+        }
+
+        String scheme = uri.getScheme() == null ? "http" : uri.getScheme().toLowerCase(Locale.ROOT);
+        Proxy.Type type = scheme.startsWith("socks") ? Proxy.Type.SOCKS : Proxy.Type.HTTP;
+        int port = uri.getPort() > 0 ? uri.getPort() : (type == Proxy.Type.SOCKS ? 1080 : 80);
+
         if (!isReachable(host, port)) {
-            log.warn("[RAG] 配置的 HTTP 代理 {}:{} 不可达，本次改为直连（请确认代理客户端已启动；"
+            log.warn("[RAG] 配置的代理 {}:{} 不可达，本次改为直连（请确认代理客户端已启动；"
                     + "如已中途启动，需重启后端）", host, port);
             return null;
         }
-        log.info("[RAG] 大模型请求走 HTTP 代理 -> {}:{}", host, port);
-        return new Proxy(Proxy.Type.HTTP, new InetSocketAddress(host, port));
+        log.info("[RAG] 大模型请求走 {} 代理 -> {}:{}", type, host, port);
+        return new Proxy(type, new InetSocketAddress(host, port));
     }
 
     /** 轻量 TCP 可达性探测，仅用于启动期判断代理客户端是否在监听。 */

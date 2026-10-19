@@ -38,6 +38,10 @@ spring:
     name: smart-qa-platform
   # 直接读取 backend/.env（KEY=VALUE 与 properties 语法兼容，# 开头自动视为注释）。
   # 这样无需 bat/ps1 逐行解析，避免编码与换行差异导致变量丢失；文件不存在时 optional 不报错。
+  # ⚠ 相对路径基准是**进程工作目录**，不是本文件所在目录：必须在 backend/ 下启动才会命中
+  #   （IDEA 默认工作目录即模块目录；命令行需先 cd backend 再 mvn spring-boot:run）。
+  #   从仓库根用 -f backend/pom.xml 启动会读不到该文件，而 optional 不报错，
+  #   症状是「.env 明明配了却没生效」，排查成本高。
   config:
     import: optional:file:./.env[.properties]
   datasource:
@@ -107,8 +111,9 @@ rag:
     # 不再静默断流。约束：first-token < sse-timeout，且 sse-timeout > timeout-seconds。
     first-token-timeout-seconds: ${AI_FIRST_TOKEN_TIMEOUT_SECONDS:45}
     sse-timeout-seconds: ${AI_SSE_TIMEOUT_SECONDS:120}
-    # 可选 HTTP 代理，形如 http://127.0.0.1:7890；留空 = 直连。
-    # Java 不读取系统代理，访问境外端点（OpenRouter 等）时必须显式配置，否则只会看到超时或 TLS 握手中断。
+    # 可选代理，形如 http://127.0.0.1:7890；留空 = 直连。
+    # Java 不读取系统代理，访问境外端点（OpenRouter 等）时必须显式配置，否则只会看到超时或连接被重置。
+    # 也接受省略 scheme 的 127.0.0.1:7890 与 socks5://host:port（按 SOCKS 走）；配置非法只 WARN 不阻断启动。
     proxy: ${AI_PROXY:}
   # 向量模型说明：已采用内置 BGE-Small-ZH 本地模型 (纯本地CPU计算，零Token费用，无远程接口依赖)
   chroma:
