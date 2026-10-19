@@ -74,6 +74,11 @@ rag:
     # 本地调试若用的是排队严重的免费/低优先模型，可适当调大，但不建议取消。
     first-token-timeout-seconds: 45
     sse-timeout-seconds: 120
+    # 【PR #101】可选代理（语义与 application.yml 一致）：
+    # Java 不读系统代理，访问境外端点（OpenRouter 等）时必须显式配置，否则只会看到超时或连接被重置。
+    # 支持 http://host:port、省略 scheme 的 host:port、socks5://host:port；留空 = 直连。
+    # 格式非法/缺主机名/端口不可达均只打 WARN 并降级直连，不阻断启动；探测仅证明端口监听，不证明能出网。
+    proxy: ${AI_PROXY:}
   # 向量模型说明：已采用内置 BGE-Small-ZH 本地模型 (纯本地CPU计算，零Token费用，无远程接口依赖)
   chroma:
     base-url: http://${CHROMA_HOST:localhost}:8000

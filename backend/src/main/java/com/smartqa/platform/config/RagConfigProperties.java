@@ -92,6 +92,16 @@ public class RagConfigProperties {
         public void setSseTimeoutSeconds(Integer sseTimeoutSeconds) {
             this.sseTimeoutSeconds = sseTimeoutSeconds;
         }
+
+        /**
+         * 可选代理，形如 {@code http://127.0.0.1:7890}；留空则直连。
+         * 也接受省略 scheme 的 {@code host:port} 与 {@code socks5://host:port}。
+         * Java 不读取系统代理，境外端点（如 OpenRouter）需显式注入，见 LangChain4jConfig#buildProxy。
+         */
+        private String proxy = "";
+
+        public String getProxy() { return proxy; }
+        public void setProxy(String proxy) { this.proxy = proxy; }
     }
 
     public static class Chroma {
